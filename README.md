@@ -97,4 +97,4 @@ The source lives at [`tool/cli/`](https://github.com/kido-luci/flutter-starter-t
 
 ## License
 
-MIT
+[MIT](LICENSE)
