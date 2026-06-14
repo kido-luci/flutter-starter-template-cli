@@ -1,0 +1,62 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit configuration for flutter-starter-template-cli.
+# Docs: https://docs.coderabbit.ai/getting-started/configure-coderabbit
+language: en-US
+tone_instructions: >-
+  Be concise and pragmatic. Prioritize correctness and user-facing behaviour
+  over style nits. Skip trivial formatting comments; `dart format` and the
+  lints package already enforce style.
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  path_filters:
+    - "!**/*.lock"
+
+  path_instructions:
+    - path: "lib/src/rewrite/**"
+      instructions: >-
+        This code does in-place string substitution across a cloned Flutter
+        project. Watch for: partial-match bugs where a shorter token replaces
+        part of a longer one (substitution order matters — longer/more-specific
+        tokens must go first); binary or generated files being opened as text;
+        destructive directory removal that overlaps with the newly written path
+        (e.g. both old and new bundle IDs share a `com/` prefix).
+    - path: "lib/src/commands/**"
+      instructions: >-
+        This is the interactive CLI layer. Check that every Process.run call
+        checks exitCode and surfaces stderr to the user, that the output
+        directory existence check happens before any destructive work, and that
+        the `--no-setup` flag is respected consistently.
+    - path: "lib/src/validators.dart"
+      instructions: >-
+        Regex validators are the first line of defence against bad inputs that
+        would silently corrupt generated project files. Verify the package-name
+        and bundle-ID regexes reject edge cases (leading digits, hyphens,
+        single-segment bundle IDs, empty strings).
+    - path: "test/**"
+      instructions: >-
+        Prefer real temp-directory tests over mocks — the rewriter works on the
+        filesystem and mocks hide real I/O bugs. Expect Arrange-Act-Assert.
+        Flag missing coverage for new rewrite rules or validator edge cases.
+
+  auto_title_instructions: >-
+    Use Conventional Commit style (feat:, fix:, refactor:, chore:, test:, docs:, style:).
+
+  tools:
+    github-checks:
+      enabled: true
+
+chat:
+  auto_reply: true
