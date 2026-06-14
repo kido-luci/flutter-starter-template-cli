@@ -1,5 +1,6 @@
 final _packageNameRe = RegExp(r'^[a-z][a-z0-9_]*$');
-final _bundleIdRe = RegExp(r'^[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*){1,}$');
+final _bundleIdRe =
+    RegExp(r'^[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*){1,}$');
 
 bool isValidPackageName(String v) => _packageNameRe.hasMatch(v);
 

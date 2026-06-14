@@ -109,8 +109,7 @@ Future<void> _moveMainActivityFile(
     'kotlin',
   );
   var parent = Directory(p.dirname(oldPath));
-  while (parent.path != kotlinRoot &&
-      parent.listSync().isEmpty) {
+  while (parent.path != kotlinRoot && parent.listSync().isEmpty) {
     final grandparent = parent.parent;
     await parent.delete();
     parent = grandparent;
