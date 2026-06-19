@@ -28,5 +28,17 @@ Future<void> prepareCleanSlate(String projectDir) async {
   final gitDir = Directory(p.join(projectDir, '.git'));
   if (gitDir.existsSync()) gitDir.deleteSync(recursive: true);
 
-  await Process.run('git', ['init', '-q'], workingDirectory: projectDir);
+  final initResult = await Process.run(
+    'git',
+    ['init', '-q'],
+    workingDirectory: projectDir,
+  );
+  if (initResult.exitCode != 0) {
+    throw ProcessException(
+      'git',
+      ['init', '-q'],
+      initResult.stderr.toString(),
+      initResult.exitCode,
+    );
+  }
 }
