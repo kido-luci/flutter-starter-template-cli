@@ -205,7 +205,8 @@ class CreateCommand extends Command<int> {
     _logger.info('    cd $outputDir');
     _logger.info('');
     _logger.info('    # Point Firebase at your own project:');
-    _logger.info('    dart pub global activate flutterfire_cli  # if not installed');
+    _logger.info(
+        '    dart pub global activate flutterfire_cli  # if not installed');
     _logger.info('    flutterfire configure');
     _logger.info('');
     _logger.info('    # Then run the app:');
