@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0
+
+- `fst create` can now scaffold without Firebase. A `--[no-]firebase` flag (and
+  an interactive prompt) chooses; the default stays on, so existing behaviour is
+  unchanged.
+- `--no-firebase` produces a project that builds and runs with no Firebase
+  project: it flips the `kFirebaseEnabled` platform flag, swaps the analytics and
+  crash-reporting bindings to no-ops, removes the Firebase Android Gradle
+  plugins, and deletes the template's native Firebase credential files.
+- Requires the template's tracking-ports refactor (analytics/crash behind
+  swappable bindings + a `kFirebaseEnabled` flag) to be present in the cloned
+  template.
+
 ## 0.4.0
 
 - `fst create` can now run non-interactively. Each input has a flag

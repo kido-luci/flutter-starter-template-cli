@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import '../config_resolver.dart';
 import '../project_config.dart';
 import '../rewrite/clean_slate.dart';
+import '../rewrite/firebase.dart';
 import '../rewrite/rewriter.dart';
 import '../validators.dart';
 
@@ -38,6 +39,12 @@ class CreateCommand extends Command<int> {
         'output-dir',
         abbr: 'o',
         help: 'Directory to create the project in (default: <package-name>).',
+      )
+      ..addFlag(
+        'firebase',
+        defaultsTo: true,
+        help: 'Wire Firebase (default). Use --no-firebase to scaffold without '
+            'it: no Firebase project needed to build and run.',
       )
       ..addFlag(
         'yes',
@@ -104,6 +111,8 @@ class CreateCommand extends Command<int> {
       (displayName, packageName, bundleId, org) = resolved;
     }
 
+    final useFirebase = _resolveFirebase(yes: yes);
+
     final defaultOutput = argResults?['output-dir'] as String? ?? packageName;
     final outputDir = p.absolute(defaultOutput);
 
@@ -116,6 +125,9 @@ class CreateCommand extends Command<int> {
     _logger.info('  Bundle ID      ${lightCyan.wrap(bundleId)}');
     _logger.info('  Organisation   ${lightCyan.wrap(org)}');
     _logger.info('  Output dir     ${lightCyan.wrap(outputDir)}');
+    _logger.info(
+      '  Firebase       ${lightCyan.wrap(useFirebase ? 'enabled' : 'disabled')}',
+    );
     _logger.info('');
 
     if (!yes) {
@@ -190,6 +202,20 @@ class CreateCommand extends Command<int> {
       return 1;
     }
 
+    // ── 5b. Disable Firebase ─────────────────────────────────────────────────
+    // Runs before setup so codegen and the native build see the disabled tree.
+    if (!useFirebase) {
+      final firebaseProgress = _logger.progress('Disabling Firebase');
+      try {
+        await disableFirebase(outputDir);
+        firebaseProgress.complete('Firebase disabled');
+      } catch (e) {
+        firebaseProgress.fail('Disabling Firebase failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
     // ── 6. Setup ─────────────────────────────────────────────────────────────
 
     final skipSetup = argResults?['no-setup'] as bool? ?? false;
@@ -219,19 +245,34 @@ class CreateCommand extends Command<int> {
     _logger.info('');
     _logger.success('  Project created at $outputDir');
     _logger.info('');
-    _logger.warn(
-      'Firebase is still wired to the template. lib/firebase_options.dart '
-      'points at the template Firebase project, so the app will use it until '
-      'you reconfigure it for your own project.',
-    );
-    _logger.info('');
-    _logger.info('  Next steps:');
-    _logger.info('    cd "$outputDir"');
-    _logger.info('');
-    _logger.info('    # Point Firebase at your own project:');
-    _logger.info(
-        '    dart pub global activate flutterfire_cli  # if not installed');
-    _logger.info('    flutterfire configure');
+
+    if (useFirebase) {
+      _logger.warn(
+        'Firebase is still wired to the template. lib/firebase_options.dart '
+        'points at the template Firebase project, so the app will use it until '
+        'you reconfigure it for your own project.',
+      );
+      _logger.info('');
+      _logger.info('  Next steps:');
+      _logger.info('    cd "$outputDir"');
+      _logger.info('');
+      _logger.info('    # Point Firebase at your own project:');
+      _logger.info(
+          '    dart pub global activate flutterfire_cli  # if not installed');
+      _logger.info('    flutterfire configure');
+    } else {
+      _logger.info(
+        'Firebase is disabled — the app builds and runs without a Firebase '
+        'project. To add it later, set kFirebaseEnabled to true in '
+        'lib/app/firebase.dart, restore the Firebase tracking bindings '
+        '(// fst:analytics-impl, // fst:crash-impl), and run '
+        'flutterfire configure.',
+      );
+      _logger.info('');
+      _logger.info('  Next steps:');
+      _logger.info('    cd "$outputDir"');
+    }
+
     _logger.info('');
     _logger
         .info('    # Make your first commit (a fresh git repo was created):');
@@ -242,6 +283,17 @@ class CreateCommand extends Command<int> {
     _logger.info('');
 
     return 0;
+  }
+
+  /// Resolves whether to wire Firebase. An explicit `--firebase`/`--no-firebase`
+  /// wins; otherwise non-interactive runs default to on (a safe default, unlike
+  /// the identity inputs) and interactive runs prompt.
+  bool _resolveFirebase({required bool yes}) {
+    if (argResults?.wasParsed('firebase') ?? false) {
+      return argResults?['firebase'] as bool? ?? true;
+    }
+    if (yes) return true;
+    return Confirm(prompt: 'Use Firebase?', defaultValue: true).interact();
   }
 
   /// Resolves the four identity inputs interactively, honouring any supplied as
