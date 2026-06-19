@@ -72,10 +72,26 @@ $ fst create
 
   Project created at /Users/you/acme_app
 
+  ⚠ Firebase is still wired to the template. lib/firebase_options.dart points
+    at the template Firebase project, so the app will use it until you
+    reconfigure it for your own project.
+
   Next steps:
     cd acme_app
+
+    # Point Firebase at your own project:
+    dart pub global activate flutterfire_cli  # if not installed
+    flutterfire configure
+
+    # Then run the app:
     fvm flutter run
 ```
+
+> **Firebase is not yours yet.** `fst create` only renames identifiers — it does
+> not touch your Firebase credentials. The generated `lib/firebase_options.dart`
+> (and any native config) still targets the template's Firebase project. Run
+> [`flutterfire configure`](https://firebase.google.com/docs/flutter/setup) to
+> point the app at your own project before shipping.
 
 ## Requirements
 

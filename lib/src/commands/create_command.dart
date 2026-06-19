@@ -195,8 +195,20 @@ class CreateCommand extends Command<int> {
     _logger.info('');
     _logger.success('  Project created at $outputDir');
     _logger.info('');
+    _logger.warn(
+      'Firebase is still wired to the template. lib/firebase_options.dart '
+      'points at the template Firebase project, so the app will use it until '
+      'you reconfigure it for your own project.',
+    );
+    _logger.info('');
     _logger.info('  Next steps:');
     _logger.info('    cd $outputDir');
+    _logger.info('');
+    _logger.info('    # Point Firebase at your own project:');
+    _logger.info('    dart pub global activate flutterfire_cli  # if not installed');
+    _logger.info('    flutterfire configure');
+    _logger.info('');
+    _logger.info('    # Then run the app:');
     _logger.info('    fvm flutter run');
     _logger.info('');
 
