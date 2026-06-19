@@ -42,7 +42,7 @@ String removeFeatureRegions(String content, String feature) {
   return kept.join('\n');
 }
 
-/// App-shell wiring files that carry `fst:feature:*` regions.
+/// App-shell wiring + test files that carry `fst:feature:*` regions.
 const _wiringFiles = [
   'pubspec.yaml',
   'lib/app/di/injection.dart',
@@ -50,6 +50,11 @@ const _wiringFiles = [
   'lib/app/router.dart',
   'lib/app/widgets/app_shell.dart',
   'lib/app/app.dart',
+  'test/widget_test.dart',
+  'test/test_utils/mocks.dart',
+  'test/architecture/di_module_ordering_test.dart',
+  'test/architecture/package_layering_test.dart',
+  'test/architecture/feature_boundaries_test.dart',
 ];
 
 /// Excises every [features] feature from [projectDir]: strips their
