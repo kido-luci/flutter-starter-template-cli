@@ -127,5 +127,30 @@ void main() {
       await excludeFeatures(dir.path, <String>{});
       expect(exists('packages/features/notifications/pubspec.yaml'), isTrue);
     });
+
+    test('keeps _infra unless every removable feature is excluded', () async {
+      write(
+        'lib/app/features.dart',
+        '// fst:feature:_infra:start\n'
+            "import 'di/injection.dart';\n"
+            '// fst:feature:_infra:end\n',
+      );
+      await excludeFeatures(dir.path, {'notifications'});
+      expect(read('lib/app/features.dart'), contains('di/injection.dart'));
+    });
+
+    test('strips _infra when all removable features are excluded', () async {
+      write(
+        'lib/app/features.dart',
+        '// fst:feature:_infra:start\n'
+            "import 'di/injection.dart';\n"
+            '// fst:feature:_infra:end\n',
+      );
+      await excludeFeatures(
+        dir.path,
+        {'bookmarks', 'collections', 'notifications'},
+      );
+      expect(read('lib/app/features.dart'), isNot(contains('injection.dart')));
+    });
   });
 }

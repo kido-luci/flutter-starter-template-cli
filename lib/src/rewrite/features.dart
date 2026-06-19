@@ -65,6 +65,11 @@ const _wiringFiles = [
 Future<void> excludeFeatures(String projectDir, Set<String> features) async {
   if (features.isEmpty) return;
 
+  // When every removable feature is gone, `enabledFeatures` is empty — also
+  // strip the now-orphaned module infrastructure (marked `fst:feature:_infra`)
+  // so the trimmed project has no unused imports/declarations.
+  final stripInfra = removableFeatures.difference(features).isEmpty;
+
   for (final relative in _wiringFiles) {
     final file = File(p.join(projectDir, p.joinAll(relative.split('/'))));
     if (!file.existsSync()) continue;
@@ -72,6 +77,7 @@ Future<void> excludeFeatures(String projectDir, Set<String> features) async {
     for (final feature in features) {
       content = removeFeatureRegions(content, feature);
     }
+    if (stripInfra) content = removeFeatureRegions(content, '_infra');
     file.writeAsStringSync(content);
   }
 
