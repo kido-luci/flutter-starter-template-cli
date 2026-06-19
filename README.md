@@ -45,10 +45,14 @@ fst create [options]
     --package-name    Dart package name, snake_case (default: derived from --name)
     --bundle-id       Bundle / App ID, reverse-DNS (skips the prompt)
     --org             Organisation / author (skips the prompt)
--o, --output-dir      Directory to create the project in (default: <package-name>)
-    --[no-]firebase   Wire Firebase (default on); --no-firebase scaffolds without it
--y, --yes             Run non-interactively: no prompts, no confirmation
-    --no-setup        Skip running tool/setup.sh after scaffolding
+-o, --output-dir       Directory to create the project in (default: <package-name>)
+    --[no-]firebase    Wire Firebase (default on); --no-firebase scaffolds without it
+    --exclude-feature  Demo feature(s) to leave out (repeatable): bookmarks,
+                       collections, notifications
+    --api-url          Base URL for the staging & prod env files (dev keeps localhost)
+    --icon             Path to a square PNG used to generate the launcher icon
+-y, --yes              Run non-interactively: no prompts, no confirmation
+    --no-setup         Skip running tool/setup.sh after scaffolding
 ```
 
 Each input can be supplied as a flag instead of answering its prompt. When a
@@ -69,6 +73,24 @@ restore the tracking bindings at the `// fst:analytics-impl` and
 `// fst:crash-impl` markers, and run `flutterfire configure`. Analytics and crash
 reporting are independent ports — keep one on Firebase and the other no-op by
 editing just that binding.
+
+### Excluding demo features
+
+The template ships three demo content features you can leave out:
+`bookmarks`, `collections`, `notifications` (the `auth`, `home`, `profile`, and
+`splash` core features are always kept). Pass `--exclude-feature` (repeatable) or
+deselect them in the interactive multi-select; the CLI strips each feature's
+`// fst:feature:<name>` regions from the app wiring and deletes its package.
+Because `bookmarks` depends on `collections`, excluding `collections` also
+excludes `bookmarks`.
+
+### API base URL & launcher icon
+
+- `--api-url https://api.acme.com` rewrites `API_BASE_URL` in `env/staging.json`
+  and `env/prod.json` (dev keeps `http://localhost:8080`). Blank/omitted keeps
+  the template values.
+- `--icon path/to/icon.png` copies a square PNG into `tool/launcher_icons/` and
+  runs `flutter_launcher_icons` after setup. Omitted keeps the template icon.
 
 ### Non-interactive (CI / scripts)
 

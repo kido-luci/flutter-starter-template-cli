@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0
+
+- `fst create` can now exclude the demo content features (`bookmarks`,
+  `collections`, `notifications`) via a multi-select prompt or repeatable
+  `--exclude-feature`. The CLI strips each feature's `// fst:feature:<name>`
+  regions from the app wiring and deletes its package. Excluding `collections`
+  also excludes `bookmarks` (it depends on it).
+- `--api-url` sets `API_BASE_URL` for the staging and prod env files (dev keeps
+  its local default).
+- `--icon <path.png>` installs a launcher icon and runs `flutter_launcher_icons`
+  after setup.
+- Defaults are unchanged: all features kept, template URLs kept, template icon
+  kept. Requires the template's `// fst:feature:*` markers to be present.
+
 ## 0.5.0
 
 - `fst create` can now scaffold without Firebase. A `--[no-]firebase` flag (and

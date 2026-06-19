@@ -8,7 +8,10 @@ import 'package:path/path.dart' as p;
 import '../config_resolver.dart';
 import '../project_config.dart';
 import '../rewrite/clean_slate.dart';
+import '../rewrite/env.dart';
+import '../rewrite/features.dart';
 import '../rewrite/firebase.dart';
+import '../rewrite/icon.dart';
 import '../rewrite/rewriter.dart';
 import '../validators.dart';
 
@@ -45,6 +48,21 @@ class CreateCommand extends Command<int> {
         defaultsTo: true,
         help: 'Wire Firebase (default). Use --no-firebase to scaffold without '
             'it: no Firebase project needed to build and run.',
+      )
+      ..addMultiOption(
+        'exclude-feature',
+        help: 'Demo feature(s) to leave out: bookmarks, collections, '
+            'notifications. Repeatable. Excluding collections also excludes '
+            'bookmarks (it depends on collections).',
+      )
+      ..addOption(
+        'api-url',
+        help:
+            'Base URL for the staging & prod env files (dev keeps localhost).',
+      )
+      ..addOption(
+        'icon',
+        help: 'Path to a square PNG used to generate the launcher icon.',
       )
       ..addFlag(
         'yes',
@@ -113,6 +131,15 @@ class CreateCommand extends Command<int> {
 
     final useFirebase = _resolveFirebase(yes: yes);
 
+    final excludedFeatures = _resolveExcludedFeatures(yes: yes);
+    if (excludedFeatures == null) return 1;
+
+    final api = _resolveApiUrl(yes: yes);
+    if (!api.ok) return 1;
+
+    final icon = _resolveIcon(yes: yes);
+    if (!icon.ok) return 1;
+
     final defaultOutput = argResults?['output-dir'] as String? ?? packageName;
     final outputDir = p.absolute(defaultOutput);
 
@@ -128,6 +155,17 @@ class CreateCommand extends Command<int> {
     _logger.info(
       '  Firebase       ${lightCyan.wrap(useFirebase ? 'enabled' : 'disabled')}',
     );
+    if (excludedFeatures.isNotEmpty) {
+      _logger.info(
+        '  Exclude        ${lightCyan.wrap(excludedFeatures.join(', '))}',
+      );
+    }
+    if (api.url != null) {
+      _logger.info('  API base URL   ${lightCyan.wrap(api.url!)}');
+    }
+    if (icon.path != null) {
+      _logger.info('  App icon       ${lightCyan.wrap(icon.path!)}');
+    }
     _logger.info('');
 
     if (!yes) {
@@ -216,6 +254,34 @@ class CreateCommand extends Command<int> {
       }
     }
 
+    // ── 5c. Exclude features + set API URL ───────────────────────────────────
+    // Before setup so codegen (router.g.dart, DI) sees the trimmed tree.
+    if (excludedFeatures.isNotEmpty) {
+      final featureProgress = _logger.progress(
+        'Removing features: ${excludedFeatures.join(', ')}',
+      );
+      try {
+        await excludeFeatures(outputDir, excludedFeatures);
+        featureProgress.complete('Features removed');
+      } catch (e) {
+        featureProgress.fail('Removing features failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
+    if (api.url != null) {
+      final envProgress = _logger.progress('Setting API base URL');
+      try {
+        await applyApiBaseUrl(outputDir, api.url!);
+        envProgress.complete('API base URL set');
+      } catch (e) {
+        envProgress.fail('Setting API base URL failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
     // ── 6. Setup ─────────────────────────────────────────────────────────────
 
     final skipSetup = argResults?['no-setup'] as bool? ?? false;
@@ -236,6 +302,34 @@ class CreateCommand extends Command<int> {
           _logger.err(result.stderr as String);
         } else {
           setupProgress.complete('Dependencies installed & code generated');
+        }
+      }
+    }
+
+    // ── 6b. Launcher icon ────────────────────────────────────────────────────
+    // After setup so `flutter_launcher_icons` has its dependencies resolved.
+    if (icon.path != null) {
+      installLauncherIcon(outputDir, icon.path!);
+      if (skipSetup) {
+        _logger.info(
+          'Icon copied to tool/launcher_icons/. Run '
+          '`dart run flutter_launcher_icons` after installing dependencies.',
+        );
+      } else {
+        final iconProgress = _logger.progress('Generating launcher icon');
+        final useFvm =
+            File(p.join(outputDir, '.fvmrc')).existsSync() && _hasFvm();
+        final result = await Process.run(
+          useFvm ? 'fvm' : 'dart',
+          [if (useFvm) 'dart', 'run', 'flutter_launcher_icons'],
+          workingDirectory: outputDir,
+        );
+        if (result.exitCode != 0) {
+          iconProgress.fail('Icon generation failed');
+          _logger.warn(result.stdout as String);
+          _logger.err(result.stderr as String);
+        } else {
+          iconProgress.complete('Launcher icon generated');
         }
       }
     }
@@ -294,6 +388,114 @@ class CreateCommand extends Command<int> {
     }
     if (yes) return true;
     return Confirm(prompt: 'Use Firebase?', defaultValue: true).interact();
+  }
+
+  /// Resolves the demo features to exclude. `--exclude-feature` (validated)
+  /// wins; otherwise a multi-select prompt (interactive) or none (`--yes`).
+  /// Returns `null` on an unknown feature name (logged). The result is expanded
+  /// for dependencies (excluding collections also excludes bookmarks).
+  Set<String>? _resolveExcludedFeatures({required bool yes}) {
+    final flag = argResults?['exclude-feature'] as List<String>? ?? const [];
+    if (flag.isNotEmpty) {
+      final invalid =
+          flag.where((f) => !removableFeatures.contains(f)).toList();
+      if (invalid.isNotEmpty) {
+        _logger.err(
+          'Unknown --exclude-feature: ${invalid.join(', ')}. '
+          'Valid: ${removableFeatures.join(', ')}.',
+        );
+        return null;
+      }
+      return _expandWithNotice(flag.toSet());
+    }
+    if (yes) return <String>{};
+
+    final options = removableFeatures.toList();
+    final selected = MultiSelect(
+      prompt: 'Features to include (space toggles, enter confirms)',
+      options: options,
+      defaults: List<bool>.filled(options.length, true),
+    ).interact();
+    final kept = selected.map((i) => options[i]).toSet();
+    return _expandWithNotice(removableFeatures.difference(kept));
+  }
+
+  Set<String> _expandWithNotice(Set<String> excluded) {
+    final expanded = expandExcludedFeatures(excluded);
+    final added = expanded.difference(excluded);
+    if (added.isNotEmpty) {
+      _logger.info(
+        'Also excluding ${added.join(', ')} (a kept feature can\'t depend on '
+        'a removed one).',
+      );
+    }
+    return expanded;
+  }
+
+  /// Resolves the staging/prod API base URL. `--api-url` (validated) wins;
+  /// otherwise a prompt (interactive) or keep-template (`--yes`). `url` is null
+  /// to keep the template values; `ok` is false on an invalid `--api-url`.
+  ({bool ok, String? url}) _resolveApiUrl({required bool yes}) {
+    final flag = argResults?['api-url'] as String?;
+    if (flag != null) {
+      if (!isValidHttpUrl(flag)) {
+        _logger.err('Invalid --api-url "$flag": must be an http(s) URL.');
+        return (ok: false, url: null);
+      }
+      return (ok: true, url: flag);
+    }
+    if (yes) return (ok: true, url: null);
+
+    final entered = Input(
+      prompt: 'API base URL for staging & prod (blank to keep template)',
+      validator: (v) {
+        if (v.trim().isEmpty || isValidHttpUrl(v.trim())) return true;
+        throw ValidationError(
+            'Must be an http(s) URL, e.g. https://api.acme.com');
+      },
+    ).interact().trim();
+    return (ok: true, url: entered.isEmpty ? null : entered);
+  }
+
+  /// Resolves the launcher-icon source. `--icon` (validated) wins; otherwise a
+  /// prompt (interactive) or none (`--yes`). `path` is null to skip; `ok` is
+  /// false on an invalid `--icon`.
+  ({bool ok, String? path}) _resolveIcon({required bool yes}) {
+    final flag = argResults?['icon'] as String?;
+    if (flag != null) {
+      final error = _iconError(flag);
+      if (error != null) {
+        _logger.err(error);
+        return (ok: false, path: null);
+      }
+      return (ok: true, path: flag);
+    }
+    if (yes) return (ok: true, path: null);
+
+    final entered = Input(
+      prompt: 'Path to a square PNG launcher icon (blank to skip)',
+      validator: (v) {
+        if (v.trim().isEmpty) return true;
+        final error = _iconError(v.trim());
+        if (error != null) throw ValidationError(error);
+        return true;
+      },
+    ).interact().trim();
+    return (ok: true, path: entered.isEmpty ? null : entered);
+  }
+
+  String? _iconError(String path) {
+    if (!isPngPath(path)) return 'Icon must be a .png file: $path';
+    if (!File(path).existsSync()) return 'Icon file not found: $path';
+    return null;
+  }
+
+  bool _hasFvm() {
+    try {
+      return Process.runSync('fvm', ['--version']).exitCode == 0;
+    } on Object {
+      return false;
+    }
   }
 
   /// Resolves the four identity inputs interactively, honouring any supplied as

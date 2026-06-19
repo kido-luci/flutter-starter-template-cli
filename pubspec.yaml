@@ -1,6 +1,6 @@
 name: flutter_starter_template_cli
 description: CLI to scaffold new Flutter projects from flutter-starter-template.
-version: 0.5.0
+version: 0.6.0
 repository: https://github.com/kido-luci/flutter-starter-template-cli
 
 environment:
