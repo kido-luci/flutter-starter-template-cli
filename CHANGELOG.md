@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- `fst create` can now run non-interactively. Each input has a flag
+  (`--name`/`-n`, `--package-name`, `--bundle-id`, `--org`), and `--yes`/`-y`
+  skips all prompts and the confirmation for use in CI and scripts.
+- `--yes` requires `--name`, `--bundle-id`, and `--org`; `--package-name` is
+  derived from `--name` when omitted. A missing required flag, or any invalid
+  flag value, exits non-zero with a clear message instead of prompting.
+- The non-interactive input resolution is a pure, unit-tested function.
+
 ## 0.3.0
 
 - `fst create` now produces a clean slate: it removes the vendored submodules

@@ -5,6 +5,7 @@ import 'package:interact/interact.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as p;
 
+import '../config_resolver.dart';
 import '../project_config.dart';
 import '../rewrite/clean_slate.dart';
 import '../rewrite/rewriter.dart';
@@ -17,9 +18,33 @@ class CreateCommand extends Command<int> {
   CreateCommand(this._logger) {
     argParser
       ..addOption(
+        'name',
+        abbr: 'n',
+        help: 'App display name (skips the prompt).',
+      )
+      ..addOption(
+        'package-name',
+        help: 'Dart package name, snake_case (default: derived from --name).',
+      )
+      ..addOption(
+        'bundle-id',
+        help: 'Bundle / App ID, reverse-DNS (skips the prompt).',
+      )
+      ..addOption(
+        'org',
+        help: 'Organisation / author (skips the prompt).',
+      )
+      ..addOption(
         'output-dir',
         abbr: 'o',
         help: 'Directory to create the project in (default: <package-name>).',
+      )
+      ..addFlag(
+        'yes',
+        abbr: 'y',
+        negatable: false,
+        help: 'Run non-interactively: no prompts, no confirmation. Requires '
+            '--name, --bundle-id, and --org.',
       )
       ..addFlag(
         'no-setup',
@@ -49,55 +74,40 @@ class CreateCommand extends Command<int> {
 
     // ── 1. Collect inputs ────────────────────────────────────────────────────
 
-    final displayName = Input(
-      prompt: 'App display name',
-      defaultValue: 'My App',
-      validator: (v) {
-        if (v.trim().isEmpty) throw ValidationError('Cannot be empty.');
-        return true;
-      },
-    ).interact();
+    final yes = argResults?['yes'] as bool? ?? false;
 
-    final packageName = Input(
-      prompt: 'Dart package name (snake_case)',
-      defaultValue: toSnakeCase(displayName),
-      validator: (v) {
-        if (!isValidPackageName(v)) {
-          throw ValidationError(
-            'Must be lowercase letters, digits, and underscores '
-            '(no leading digit).',
-          );
-        }
-        return true;
-      },
-    ).interact();
+    final String displayName;
+    final String packageName;
+    final String bundleId;
+    final String org;
 
-    final bundleId = Input(
-      prompt: 'Bundle / App ID (reverse-DNS)',
-      defaultValue: 'com.example.$packageName',
-      validator: (v) {
-        if (!isValidBundleId(v)) {
-          throw ValidationError(
-            'Must be a valid reverse-DNS identifier, e.g. com.acme.myapp.',
-          );
-        }
-        return true;
-      },
-    ).interact();
-
-    final org = Input(
-      prompt: 'Organisation / author',
-      defaultValue: 'My Organisation',
-      validator: (v) {
-        if (v.trim().isEmpty) throw ValidationError('Cannot be empty.');
-        return true;
-      },
-    ).interact();
+    if (yes) {
+      final result = resolveProjectConfig(
+        name: argResults?['name'] as String?,
+        packageName: argResults?['package-name'] as String?,
+        bundleId: argResults?['bundle-id'] as String?,
+        org: argResults?['org'] as String?,
+      );
+      switch (result) {
+        case ConfigError(:final message):
+          _logger.err(message);
+          return 1;
+        case ConfigOk():
+          displayName = result.displayName;
+          packageName = result.packageName;
+          bundleId = result.bundleId;
+          org = result.org;
+      }
+    } else {
+      final resolved = _collectInteractively();
+      if (resolved == null) return 1;
+      (displayName, packageName, bundleId, org) = resolved;
+    }
 
     final defaultOutput = argResults?['output-dir'] as String? ?? packageName;
     final outputDir = p.absolute(defaultOutput);
 
-    // ── 2. Confirm ───────────────────────────────────────────────────────────
+    // ── 2. Summary & confirm ─────────────────────────────────────────────────
 
     _logger.info('');
     _logger.info('  ${styleBold.wrap('Project summary')}');
@@ -108,14 +118,16 @@ class CreateCommand extends Command<int> {
     _logger.info('  Output dir     ${lightCyan.wrap(outputDir)}');
     _logger.info('');
 
-    final confirmed = Confirm(
-      prompt: 'Create project?',
-      defaultValue: true,
-    ).interact();
+    if (!yes) {
+      final confirmed = Confirm(
+        prompt: 'Create project?',
+        defaultValue: true,
+      ).interact();
 
-    if (!confirmed) {
-      _logger.info('Aborted.');
-      return 0;
+      if (!confirmed) {
+        _logger.info('Aborted.');
+        return 0;
+      }
     }
 
     final config = ProjectConfig(
@@ -230,6 +242,110 @@ class CreateCommand extends Command<int> {
     _logger.info('');
 
     return 0;
+  }
+
+  /// Resolves the four identity inputs interactively, honouring any supplied as
+  /// flags. A flag that is present is validated and used as-is; an invalid flag
+  /// logs an error and returns `null` (the command then exits non-zero) instead
+  /// of silently dropping to a prompt. Returns the resolved
+  /// `(displayName, packageName, bundleId, org)` tuple, or `null` on a bad flag.
+  (String, String, String, String)? _collectInteractively() {
+    final nameFlag = argResults?['name'] as String?;
+    final packageFlag = argResults?['package-name'] as String?;
+    final bundleFlag = argResults?['bundle-id'] as String?;
+    final orgFlag = argResults?['org'] as String?;
+
+    final String displayName;
+    if (nameFlag != null) {
+      if (nameFlag.trim().isEmpty) {
+        _logger.err('--name cannot be empty.');
+        return null;
+      }
+      displayName = nameFlag.trim();
+    } else {
+      displayName = Input(
+        prompt: 'App display name',
+        defaultValue: 'My App',
+        validator: _notEmpty,
+      ).interact();
+    }
+
+    final String packageName;
+    if (packageFlag != null) {
+      if (!isValidPackageName(packageFlag.trim())) {
+        _logger.err(
+          'Invalid --package-name "${packageFlag.trim()}": must be lowercase '
+          'letters, digits, and underscores (no leading digit).',
+        );
+        return null;
+      }
+      packageName = packageFlag.trim();
+    } else {
+      packageName = Input(
+        prompt: 'Dart package name (snake_case)',
+        defaultValue: toSnakeCase(displayName),
+        validator: _packageValidator,
+      ).interact();
+    }
+
+    final String bundleId;
+    if (bundleFlag != null) {
+      if (!isValidBundleId(bundleFlag.trim())) {
+        _logger.err(
+          'Invalid --bundle-id "${bundleFlag.trim()}": must be a reverse-DNS '
+          'identifier, e.g. com.acme.myapp.',
+        );
+        return null;
+      }
+      bundleId = bundleFlag.trim();
+    } else {
+      bundleId = Input(
+        prompt: 'Bundle / App ID (reverse-DNS)',
+        defaultValue: 'com.example.$packageName',
+        validator: _bundleValidator,
+      ).interact();
+    }
+
+    final String org;
+    if (orgFlag != null) {
+      if (orgFlag.trim().isEmpty) {
+        _logger.err('--org cannot be empty.');
+        return null;
+      }
+      org = orgFlag.trim();
+    } else {
+      org = Input(
+        prompt: 'Organisation / author',
+        defaultValue: 'My Organisation',
+        validator: _notEmpty,
+      ).interact();
+    }
+
+    return (displayName, packageName, bundleId, org);
+  }
+
+  static bool _notEmpty(String v) {
+    if (v.trim().isEmpty) throw ValidationError('Cannot be empty.');
+    return true;
+  }
+
+  static bool _packageValidator(String v) {
+    if (!isValidPackageName(v)) {
+      throw ValidationError(
+        'Must be lowercase letters, digits, and underscores '
+        '(no leading digit).',
+      );
+    }
+    return true;
+  }
+
+  static bool _bundleValidator(String v) {
+    if (!isValidBundleId(v)) {
+      throw ValidationError(
+        'Must be a valid reverse-DNS identifier, e.g. com.acme.myapp.',
+      );
+    }
+    return true;
   }
 
   /// Replaces the template's large meta-README with a minimal, project-specific

@@ -1,3 +1,4 @@
+export 'src/config_resolver.dart';
 export 'src/feature_names.dart';
 export 'src/project_config.dart';
 export 'src/rewrite/clean_slate.dart';

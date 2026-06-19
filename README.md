@@ -41,8 +41,32 @@ After confirmation it will:
 ```
 fst create [options]
 
--o, --output-dir    Directory to create the project in (default: <package-name>)
-    --no-setup      Skip running tool/setup.sh after scaffolding
+-n, --name            App display name (skips the prompt)
+    --package-name    Dart package name, snake_case (default: derived from --name)
+    --bundle-id       Bundle / App ID, reverse-DNS (skips the prompt)
+    --org             Organisation / author (skips the prompt)
+-o, --output-dir      Directory to create the project in (default: <package-name>)
+-y, --yes             Run non-interactively: no prompts, no confirmation
+    --no-setup        Skip running tool/setup.sh after scaffolding
+```
+
+Each input can be supplied as a flag instead of answering its prompt. When a
+flag is given its value is validated and used as-is — an invalid value exits
+with an error rather than falling back to a prompt.
+
+### Non-interactive (CI / scripts)
+
+Pass `--yes` to skip every prompt and the confirmation. It requires `--name`,
+`--bundle-id`, and `--org`; `--package-name` defaults to the snake_case form of
+`--name`. A missing required flag exits non-zero with a clear message.
+
+```bash
+fst create \
+  --yes \
+  --name "Acme App" \
+  --bundle-id com.acme.app \
+  --org "Acme Inc" \
+  --output-dir ./acme_app
 ```
 
 ### Example
