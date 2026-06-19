@@ -25,7 +25,7 @@ Future<void> _rewriteTextFiles(String dir, ProjectConfig config) async {
   await for (final entity in root.list(recursive: true, followLinks: false)) {
     if (entity is! File) continue;
     if (_isBinaryExtension(entity.path)) continue;
-    if (_isGitIgnoredBuild(entity.path)) continue;
+    if (_isExcludedPath(entity.path)) continue;
 
     final original = await entity.readAsString();
     final patched = _applySubstitutions(original, config);
@@ -139,11 +139,14 @@ bool _isBinaryExtension(String path) {
   return binary.contains(p.extension(path).toLowerCase());
 }
 
-bool _isGitIgnoredBuild(String path) {
-  // Match directories only (trailing slash or preceded by separator)
-  // so we don't accidentally skip files like build.gradle.kts.
+bool _isExcludedPath(String path) {
+  // Match directories only (surrounded by separators) so we don't accidentally
+  // skip files like build.gradle.kts. `.git/` is excluded so the walk never
+  // reads or rewrites git internals (a corruption risk, and tokens there are
+  // never meaningful anyway).
   final p2 = path.replaceAll(r'\', '/');
   const skipDirs = [
+    '/.git/',
     '/.dart_tool/',
     '/.fvm/',
     '/build/',

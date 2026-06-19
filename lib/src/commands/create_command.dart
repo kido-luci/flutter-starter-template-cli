@@ -6,6 +6,7 @@ import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as p;
 
 import '../project_config.dart';
+import '../rewrite/clean_slate.dart';
 import '../rewrite/rewriter.dart';
 import '../validators.dart';
 
@@ -150,15 +151,26 @@ class CreateCommand extends Command<int> {
     }
     cloneProgress.complete('Template cloned');
 
-    // Detach from the upstream remote so the new project has a clean slate.
-    await Process.run('git', ['remote', 'remove', 'origin'],
-        workingDirectory: outputDir);
+    // ── 4. Clean slate ───────────────────────────────────────────────────────
+    // Drop the vendored submodules (demo backend + CLI source) and the
+    // template's git history, then re-init a fresh repo so the new project
+    // starts from its own first commit.
+    final cleanProgress = _logger.progress('Resetting to a clean slate');
+    try {
+      await prepareCleanSlate(outputDir);
+      cleanProgress.complete('Clean slate ready');
+    } catch (e) {
+      cleanProgress.fail('Clean slate failed');
+      _logger.err('$e');
+      return 1;
+    }
 
-    // ── 4. Rewrite ───────────────────────────────────────────────────────────
+    // ── 5. Rewrite ───────────────────────────────────────────────────────────
 
     final rewriteProgress = _logger.progress('Renaming template identifiers');
     try {
       await rewriteProject(outputDir, config);
+      await _writeProjectReadme(outputDir, config);
       rewriteProgress.complete('Identifiers renamed');
     } catch (e) {
       rewriteProgress.fail('Rewrite failed');
@@ -166,7 +178,7 @@ class CreateCommand extends Command<int> {
       return 1;
     }
 
-    // ── 5. Setup ─────────────────────────────────────────────────────────────
+    // ── 6. Setup ─────────────────────────────────────────────────────────────
 
     final skipSetup = argResults?['no-setup'] as bool? ?? false;
     if (!skipSetup) {
@@ -190,7 +202,7 @@ class CreateCommand extends Command<int> {
       }
     }
 
-    // ── 6. Done ──────────────────────────────────────────────────────────────
+    // ── 7. Done ──────────────────────────────────────────────────────────────
 
     _logger.info('');
     _logger.success('  Project created at $outputDir');
@@ -209,10 +221,37 @@ class CreateCommand extends Command<int> {
         '    dart pub global activate flutterfire_cli  # if not installed');
     _logger.info('    flutterfire configure');
     _logger.info('');
+    _logger
+        .info('    # Make your first commit (a fresh git repo was created):');
+    _logger.info('    git add -A && git commit -m "Initial commit"');
+    _logger.info('');
     _logger.info('    # Then run the app:');
     _logger.info('    fvm flutter run');
     _logger.info('');
 
     return 0;
+  }
+
+  /// Replaces the template's large meta-README with a minimal, project-specific
+  /// one so the new project documents itself rather than the template.
+  Future<void> _writeProjectReadme(String dir, ProjectConfig config) async {
+    final readme = File(p.join(dir, 'README.md'));
+    await readme.writeAsString('''
+# ${config.displayName}
+
+A Flutter application scaffolded from
+[flutter-starter-template](https://github.com/kido-luci/flutter-starter-template)
+with `fst create`.
+
+## Getting started
+
+```sh
+fvm flutter pub get
+fvm flutter run
+```
+
+> Firebase is not configured yet. Run `flutterfire configure` to point the app
+> at your own Firebase project before shipping.
+''');
   }
 }

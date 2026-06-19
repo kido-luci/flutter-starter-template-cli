@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- `fst create` now produces a clean slate: it removes the vendored submodules
+  (the demo backend and the CLI's own source) and the template's git history,
+  then runs `git init` so the new project starts from its own first commit.
+- The generated project gets a minimal, project-specific `README.md` instead of
+  the template's documentation.
+- The identifier rewriter no longer walks `.git/`.
+
 ## 0.2.0
 
 - `fst create` now warns that the generated `lib/firebase_options.dart` still

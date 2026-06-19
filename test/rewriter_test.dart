@@ -83,6 +83,28 @@ void main() {
       );
     });
 
+    test('does not rewrite files under .git/', () async {
+      final gitConfig = File(p.join(tempDir.path, '.git', 'config'));
+      await gitConfig.parent.create(recursive: true);
+      await gitConfig.writeAsString('url = flutter_starter_template');
+
+      final config = ProjectConfig(
+        displayName: 'My App',
+        packageName: 'my_app',
+        bundleId: 'com.acme.myapp',
+        org: 'Acme',
+        outputDir: tempDir.path,
+      );
+
+      await rewriteProject(tempDir.path, config);
+
+      expect(
+        await gitConfig.readAsString(),
+        'url = flutter_starter_template',
+        reason: '.git internals must be left untouched',
+      );
+    });
+
     test('moves MainActivity.kt to new package path', () async {
       final oldKotlinDir = Directory(
         p.join(
