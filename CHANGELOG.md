@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- `fst create` now warns that the generated `lib/firebase_options.dart` still
+  points at the template's Firebase project, and prints the
+  `flutterfire configure` steps to reconfigure it for the new project.
+
 ## 0.1.0
 
 - Initial release: `fst create` command scaffolds a new Flutter project from
