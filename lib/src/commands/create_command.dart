@@ -202,7 +202,7 @@ class CreateCommand extends Command<int> {
     );
     _logger.info('');
     _logger.info('  Next steps:');
-    _logger.info('    cd $outputDir');
+    _logger.info('    cd "$outputDir"');
     _logger.info('');
     _logger.info('    # Point Firebase at your own project:');
     _logger.info(
