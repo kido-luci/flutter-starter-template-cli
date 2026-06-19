@@ -79,6 +79,30 @@ void main() {
       expect((result as ConfigError).message, contains('--org'));
     });
 
+    test('errors when --bundle-id is blank', () {
+      final result = resolveProjectConfig(
+        name: 'Acme App',
+        packageName: 'acme_app',
+        bundleId: '   ',
+        org: 'Acme Inc',
+      );
+
+      expect(result, isA<ConfigError>());
+      expect((result as ConfigError).message, contains('--bundle-id'));
+    });
+
+    test('errors when --org is blank', () {
+      final result = resolveProjectConfig(
+        name: 'Acme App',
+        packageName: 'acme_app',
+        bundleId: 'com.acme.app',
+        org: '   ',
+      );
+
+      expect(result, isA<ConfigError>());
+      expect((result as ConfigError).message, contains('--org'));
+    });
+
     test('errors when an explicit --package-name is invalid', () {
       final result = resolveProjectConfig(
         name: 'Acme App',

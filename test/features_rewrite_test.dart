@@ -74,6 +74,16 @@ void main() {
       const src = "import 'a';\nimport 'b';\n";
       expect(removeFeatureRegions(src, 'bookmarks'), equals(src));
     });
+
+    test('throws on an unclosed start marker instead of dropping to EOF', () {
+      const src = 'keep\n'
+          '// fst:feature:bookmarks:start\n'
+          'A\n'; // no matching :end
+      expect(
+        () => removeFeatureRegions(src, 'bookmarks'),
+        throwsFormatException,
+      );
+    });
   });
 
   group('excludeFeatures', () {

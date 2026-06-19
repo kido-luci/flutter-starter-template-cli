@@ -39,6 +39,12 @@ String removeFeatureRegions(String content, String feature) {
     }
     kept.add(line);
   }
+  if (skipping) {
+    throw FormatException(
+      'Unclosed feature marker block for "$feature" (missing "$endNeedle"). '
+      'Refusing to rewrite to avoid corrupting the file.',
+    );
+  }
   return kept.join('\n');
 }
 

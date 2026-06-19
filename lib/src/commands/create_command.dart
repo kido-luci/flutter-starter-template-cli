@@ -232,7 +232,8 @@ class CreateCommand extends Command<int> {
     final rewriteProgress = _logger.progress('Renaming template identifiers');
     try {
       await rewriteProject(outputDir, config);
-      await _writeProjectReadme(outputDir, config);
+      await _writeProjectReadme(outputDir, config,
+          firebaseEnabled: useFirebase);
       rewriteProgress.complete('Identifiers renamed');
     } catch (e) {
       rewriteProgress.fail('Rewrite failed');
@@ -604,7 +605,15 @@ class CreateCommand extends Command<int> {
 
   /// Replaces the template's large meta-README with a minimal, project-specific
   /// one so the new project documents itself rather than the template.
-  Future<void> _writeProjectReadme(String dir, ProjectConfig config) async {
+  Future<void> _writeProjectReadme(
+    String dir,
+    ProjectConfig config, {
+    required bool firebaseEnabled,
+  }) async {
+    final firebaseNote = firebaseEnabled
+        ? '\n> Firebase is not configured yet. Run `flutterfire configure` to '
+            'point the app\n> at your own Firebase project before shipping.\n'
+        : '';
     final readme = File(p.join(dir, 'README.md'));
     await readme.writeAsString('''
 # ${config.displayName}
@@ -619,9 +628,6 @@ with `fst create`.
 fvm flutter pub get
 fvm flutter run
 ```
-
-> Firebase is not configured yet. Run `flutterfire configure` to point the app
-> at your own Firebase project before shipping.
-''');
+$firebaseNote''');
   }
 }
