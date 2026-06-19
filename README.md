@@ -41,8 +41,70 @@ After confirmation it will:
 ```
 fst create [options]
 
--o, --output-dir    Directory to create the project in (default: <package-name>)
-    --no-setup      Skip running tool/setup.sh after scaffolding
+-n, --name            App display name (skips the prompt)
+    --package-name    Dart package name, snake_case (default: derived from --name)
+    --bundle-id       Bundle / App ID, reverse-DNS (skips the prompt)
+    --org             Organisation / author (skips the prompt)
+-o, --output-dir       Directory to create the project in (default: <package-name>)
+    --[no-]firebase    Wire Firebase (default on); --no-firebase scaffolds without it
+    --exclude-feature  Demo feature(s) to leave out (repeatable): bookmarks,
+                       collections, notifications
+    --api-url          Base URL for the staging & prod env files (dev keeps localhost)
+    --icon             Path to a square PNG used to generate the launcher icon
+-y, --yes              Run non-interactively: no prompts, no confirmation
+    --no-setup         Skip running tool/setup.sh after scaffolding
+```
+
+Each input can be supplied as a flag instead of answering its prompt. When a
+flag is given its value is validated and used as-is — an invalid value exits
+with an error rather than falling back to a prompt.
+
+### Firebase
+
+By default the project keeps Firebase wired (you then point it at your own
+project with `flutterfire configure`). Pass `--no-firebase` (or answer the
+prompt) to scaffold **without** Firebase: the app builds and runs with no
+Firebase project at all. `--no-firebase` skips the platform initialisation,
+swaps the analytics and crash-reporting bindings to no-ops, removes the Firebase
+Android Gradle plugins, and deletes the template's native Firebase credentials.
+
+It's reversible: set `kFirebaseEnabled` back to `true` in `lib/app/firebase.dart`,
+restore the tracking bindings at the `// fst:analytics-impl` and
+`// fst:crash-impl` markers, and run `flutterfire configure`. Analytics and crash
+reporting are independent ports — keep one on Firebase and the other no-op by
+editing just that binding.
+
+### Excluding demo features
+
+The template ships three demo content features you can leave out:
+`bookmarks`, `collections`, `notifications` (the `auth`, `home`, `profile`, and
+`splash` core features are always kept). Pass `--exclude-feature` (repeatable) or
+deselect them in the interactive multi-select; the CLI strips each feature's
+`// fst:feature:<name>` regions from the app wiring and deletes its package.
+Because `bookmarks` depends on `collections`, excluding `collections` also
+excludes `bookmarks`.
+
+### API base URL & launcher icon
+
+- `--api-url https://api.acme.com` rewrites `API_BASE_URL` in `env/staging.json`
+  and `env/prod.json` (dev keeps `http://localhost:8080`). Blank/omitted keeps
+  the template values.
+- `--icon path/to/icon.png` copies a square PNG into `tool/launcher_icons/` and
+  runs `flutter_launcher_icons` after setup. Omitted keeps the template icon.
+
+### Non-interactive (CI / scripts)
+
+Pass `--yes` to skip every prompt and the confirmation. It requires `--name`,
+`--bundle-id`, and `--org`; `--package-name` defaults to the snake_case form of
+`--name`. A missing required flag exits non-zero with a clear message.
+
+```bash
+fst create \
+  --yes \
+  --name "Acme App" \
+  --bundle-id com.acme.app \
+  --org "Acme Inc" \
+  --output-dir ./acme_app
 ```
 
 ### Example

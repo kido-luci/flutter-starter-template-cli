@@ -1,4 +1,9 @@
+export 'src/config_resolver.dart';
 export 'src/feature_names.dart';
+export 'src/rewrite/env.dart';
+export 'src/rewrite/features.dart';
+export 'src/rewrite/firebase.dart';
+export 'src/rewrite/icon.dart';
 export 'src/project_config.dart';
 export 'src/rewrite/clean_slate.dart';
 export 'src/rewrite/feature_template.dart';
