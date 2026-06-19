@@ -73,12 +73,16 @@ Future<void> excludeFeatures(String projectDir, Set<String> features) async {
   for (final relative in _wiringFiles) {
     final file = File(p.join(projectDir, p.joinAll(relative.split('/'))));
     if (!file.existsSync()) continue;
-    var content = file.readAsStringSync();
+    final original = file.readAsStringSync();
+    var content = original;
     for (final feature in features) {
       content = removeFeatureRegions(content, feature);
     }
     if (stripInfra) content = removeFeatureRegions(content, '_infra');
-    file.writeAsStringSync(content);
+    if (content == original) continue;
+    // Removing a region at end-of-file can drop the trailing newline; normalise
+    // to exactly one so the result passes the `eol_at_end_of_file` lint.
+    file.writeAsStringSync('${content.trimRight()}\n');
   }
 
   for (final feature in features) {
