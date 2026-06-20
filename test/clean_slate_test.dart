@@ -22,7 +22,7 @@ void main() {
       File(p.join(tempDir.path, 'simple_backend_server', 'main.go'))
         ..createSync(recursive: true)
         ..writeAsStringSync('package main');
-      File(p.join(tempDir.path, 'tool', 'cli', 'bin', 'fst.dart'))
+      File(p.join(tempDir.path, 'published', 'cli', 'bin', 'fst.dart'))
         ..createSync(recursive: true)
         ..writeAsStringSync('void main() {}');
       // Non-cli tooling must survive.
@@ -30,7 +30,7 @@ void main() {
         ..createSync(recursive: true)
         ..writeAsStringSync('#!/usr/bin/env bash');
       File(p.join(tempDir.path, '.gitmodules'))
-          .writeAsStringSync('[submodule "tool/cli"]');
+          .writeAsStringSync('[submodule "published/cli"]');
       File(p.join(tempDir.path, '.git', 'HISTORY_MARKER'))
         ..createSync(recursive: true)
         ..writeAsStringSync('template history');
@@ -44,7 +44,7 @@ void main() {
         isFalse,
       );
       expect(
-        Directory(p.join(tempDir.path, 'tool', 'cli')).existsSync(),
+        Directory(p.join(tempDir.path, 'published', 'cli')).existsSync(),
         isFalse,
       );
       expect(File(p.join(tempDir.path, '.gitmodules')).existsSync(), isFalse);
@@ -65,12 +65,12 @@ void main() {
         () async {
       // A kept submodule (not in the delete list) cloned with
       // --recurse-submodules leaves a `.git` gitlink file behind.
-      final pkg = p.join(tempDir.path, 'packages', 'rev_sync');
+      final pkg = p.join(tempDir.path, 'published', 'rev_sync');
       File(p.join(pkg, 'pubspec.yaml'))
         ..createSync(recursive: true)
         ..writeAsStringSync('name: rev_sync');
       File(p.join(pkg, '.git')).writeAsStringSync(
-        'gitdir: ../../.git/modules/packages/rev_sync',
+        'gitdir: ../../.git/modules/published/rev_sync',
       );
 
       // Act.

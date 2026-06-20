@@ -5,7 +5,7 @@ import 'package:path/path.dart' as p;
 /// Vendored submodule directories that exist for template development and
 /// should not ship inside a generated project: the demo backend and the CLI's
 /// own source.
-const _submoduleDirs = ['simple_backend_server', 'tool/cli'];
+const _submoduleDirs = ['simple_backend_server', 'published/cli'];
 
 /// Strips template-development baggage from a freshly cloned [projectDir] and
 /// re-initialises a fresh git repository.
@@ -17,7 +17,7 @@ const _submoduleDirs = ['simple_backend_server', 'tool/cli'];
 /// and `.gitmodules`, discards the cloned `.git`, and runs `git init` so the
 /// project starts from its own first commit with no upstream baggage.
 ///
-/// Submodules that a generated project *keeps* (e.g. `packages/rev_sync`, a
+/// Submodules that a generated project *keeps* (e.g. `published/rev_sync`, a
 /// vendored workspace package) are folded in as plain source: their leftover
 /// `.git` gitlink is stripped so `git init` tracks their files instead of
 /// treating them as embedded repositories.
