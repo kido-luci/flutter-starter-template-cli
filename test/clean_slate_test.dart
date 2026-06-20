@@ -60,5 +60,26 @@ void main() {
       );
       expect(File(p.join(tempDir.path, '.git', 'HEAD')).existsSync(), isTrue);
     });
+
+    test('folds a kept submodule in by stripping its leftover .git gitlink',
+        () async {
+      // A kept submodule (not in the delete list) cloned with
+      // --recurse-submodules leaves a `.git` gitlink file behind.
+      final pkg = p.join(tempDir.path, 'packages', 'rev_sync');
+      File(p.join(pkg, 'pubspec.yaml'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('name: rev_sync');
+      File(p.join(pkg, '.git')).writeAsStringSync(
+        'gitdir: ../../.git/modules/packages/rev_sync',
+      );
+
+      // Act.
+      await prepareCleanSlate(tempDir.path);
+
+      // The source survives; the gitlink is gone so git tracks it as plain
+      // files rather than an embedded repository.
+      expect(File(p.join(pkg, 'pubspec.yaml')).existsSync(), isTrue);
+      expect(File(p.join(pkg, '.git')).existsSync(), isFalse);
+    });
   });
 }
