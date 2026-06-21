@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1
+
+The template's published submodules were grouped under a top-level `published/`
+directory. `fst create` now drops the CLI's own source from `published/cli`
+(was `tool/cli`) when cleaning a generated project, and the kept `rev_sync`
+submodule is now at `published/rev_sync` (was `packages/rev_sync`). No change to
+the `fst` command surface.
+
 ## 1.0.0
 
 Initial release.

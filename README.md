@@ -167,7 +167,7 @@ See the [flutter-starter-template README](https://github.com/kido-luci/flutter-s
 
 ## Contributing
 
-The source lives at [`tool/cli/`](https://github.com/kido-luci/flutter-starter-template/tree/main/tool/cli) inside the main template repository, and is mirrored here as a standalone package for pub.dev.
+The source lives at [`published/cli/`](https://github.com/kido-luci/flutter-starter-template/tree/main/published/cli) inside the main template repository, and is mirrored here as a standalone package for pub.dev.
 
 1. Fork [`flutter-starter-template-cli`](https://github.com/kido-luci/flutter-starter-template-cli)
 2. Make changes and run `dart test`
