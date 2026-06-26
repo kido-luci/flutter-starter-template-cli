@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import '../config_resolver.dart';
 import '../project_config.dart';
 import '../rewrite/auth.dart';
+import '../rewrite/backend.dart';
 import '../rewrite/clean_slate.dart';
 import '../rewrite/env.dart';
 import '../rewrite/features.dart';
@@ -56,6 +57,20 @@ class CreateCommand extends Command<int> {
         defaultsTo: true,
         help: 'Include the auth pillar (default). Use --no-auth to scaffold a '
             'user-less app: no login/register screens or session management.',
+      )
+      ..addFlag(
+        'backend',
+        defaultsTo: true,
+        help: 'Include the backend pillar (default). Use --no-backend to '
+            'scaffold a fully local-only app: no network, no sync, no auth, '
+            'no server-backed demo features.',
+      )
+      ..addFlag(
+        'minimal',
+        negatable: false,
+        help: 'Scaffold the smallest possible app: no backend, no Firebase, '
+            'no auth, no server-backed demo features. Equivalent to '
+            '--no-backend --no-firebase.',
       )
       ..addMultiOption(
         'exclude-feature',
@@ -143,11 +158,20 @@ class CreateCommand extends Command<int> {
       (displayName, packageName, bundleId, org) = resolved;
     }
 
-    final useFirebase = _resolveFirebase(yes: yes);
+    // Resolve --minimal first: it forces both --no-backend and --no-firebase.
+    final minimal = argResults?['minimal'] as bool? ?? false;
 
-    final useAuth = _resolveAuth(yes: yes);
+    final useFirebase = _resolveFirebase(yes: yes, forceDisabled: minimal);
 
-    final excludedFeatures = _resolveExcludedFeatures(yes: yes);
+    // --no-backend (or --minimal) implies --no-auth.
+    final useBackend = _resolveBackend(yes: yes, forceDisabled: minimal);
+    final useAuth = _resolveAuth(yes: yes, forceDisabled: !useBackend);
+
+    final excludedFeatures = _resolveExcludedFeatures(
+      yes: yes,
+      // --no-backend forces exclusion of all server-backed demo features.
+      forcedExclusions: useBackend ? const {} : removableFeatures,
+    );
     if (excludedFeatures == null) return 1;
 
     final api = _resolveApiUrl(yes: yes);
@@ -170,6 +194,9 @@ class CreateCommand extends Command<int> {
     _logger.info('  Output dir     ${lightCyan.wrap(outputDir)}');
     _logger.info(
       '  Firebase       ${lightCyan.wrap(useFirebase ? 'enabled' : 'disabled')}',
+    );
+    _logger.info(
+      '  Backend        ${lightCyan.wrap(useBackend ? 'enabled' : 'disabled (local-only)')}',
     );
     _logger.info(
       '  Auth           ${lightCyan.wrap(useAuth ? 'enabled' : 'disabled')}',
@@ -305,6 +332,21 @@ class CreateCommand extends Command<int> {
       }
     }
 
+    // ── 5b3. Disable backend ─────────────────────────────────────────────────
+    // After auth (auth strips fst:auth regions; backend strips fst:backend
+    // regions — distinct marker names so they never touch the same lines).
+    if (!useBackend) {
+      final backendProgress = _logger.progress('Removing backend pillar');
+      try {
+        await disableBackend(outputDir);
+        backendProgress.complete('Backend pillar removed');
+      } catch (e) {
+        backendProgress.fail('Removing backend pillar failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
     // ── 5c. Exclude features + set API URL ───────────────────────────────────
     // Before setup so codegen (router.g.dart, DI) sees the trimmed tree.
     if (excludedFeatures.isNotEmpty) {
@@ -431,9 +473,11 @@ class CreateCommand extends Command<int> {
   }
 
   /// Resolves whether to wire Firebase. An explicit `--firebase`/`--no-firebase`
-  /// wins; otherwise non-interactive runs default to on (a safe default, unlike
-  /// the identity inputs) and interactive runs prompt.
-  bool _resolveFirebase({required bool yes}) {
+  /// wins; [forceDisabled] (set by `--minimal`) overrides to false without
+  /// prompting. Otherwise non-interactive runs default to on (a safe default,
+  /// unlike the identity inputs) and interactive runs prompt.
+  bool _resolveFirebase({required bool yes, bool forceDisabled = false}) {
+    if (forceDisabled) return false;
     if (argResults?.wasParsed('firebase') ?? false) {
       return argResults?['firebase'] as bool? ?? true;
     }
@@ -441,23 +485,49 @@ class CreateCommand extends Command<int> {
     return Confirm(prompt: 'Use Firebase?', defaultValue: true).interact();
   }
 
+  /// Resolves whether to include the backend pillar. An explicit
+  /// `--backend`/`--no-backend` wins; [forceDisabled] (set by `--minimal`)
+  /// overrides to false without prompting. Otherwise non-interactive runs
+  /// default to on and interactive runs prompt.
+  bool _resolveBackend({required bool yes, bool forceDisabled = false}) {
+    if (forceDisabled) return false;
+    if (argResults?.wasParsed('backend') ?? false) {
+      return argResults?['backend'] as bool? ?? true;
+    }
+    if (yes) return true;
+    return Confirm(
+      prompt: 'Include backend (network, sync, server-backed features)?',
+      defaultValue: true,
+    ).interact();
+  }
+
   /// Resolves whether to include the auth pillar. An explicit
-  /// `--auth`/`--no-auth` wins; otherwise non-interactive runs default to on
-  /// and interactive runs prompt.
-  bool _resolveAuth({required bool yes}) {
+  /// `--auth`/`--no-auth` wins; [forceDisabled] (set when `--no-backend` is
+  /// active, since a local-only app has no server for JWT) overrides to false
+  /// without prompting. Otherwise non-interactive runs default to on and
+  /// interactive runs prompt.
+  bool _resolveAuth({required bool yes, bool forceDisabled = false}) {
+    if (forceDisabled) return false;
     if (argResults?.wasParsed('auth') ?? false) {
       return argResults?['auth'] as bool? ?? true;
     }
     if (yes) return true;
-    return Confirm(prompt: 'Include auth (login / register)?', defaultValue: true)
-        .interact();
+    return Confirm(
+      prompt: 'Include auth (login / register)?',
+      defaultValue: true,
+    ).interact();
   }
 
   /// Resolves the demo features to exclude. `--exclude-feature` (validated)
   /// wins; otherwise a multi-select prompt (interactive) or none (`--yes`).
+  /// [forcedExclusions] (set when `--no-backend` removes all server-backed
+  /// demo features) are merged in after the flag/prompt result.
   /// Returns `null` on an unknown feature name (logged). The result is expanded
   /// for dependencies (excluding collections also excludes bookmarks).
-  Set<String>? _resolveExcludedFeatures({required bool yes}) {
+  Set<String>? _resolveExcludedFeatures({
+    required bool yes,
+    Set<String> forcedExclusions = const {},
+  }) {
     final flag = argResults?['exclude-feature'] as List<String>? ?? const [];
     if (flag.isNotEmpty) {
       final invalid =
@@ -469,7 +539,12 @@ class CreateCommand extends Command<int> {
         );
         return null;
       }
-      return _expandWithNotice(flag.toSet());
+      return _expandWithNotice({...flag, ...forcedExclusions});
+    }
+    if (forcedExclusions.isNotEmpty) {
+      // All server-backed features are forced out — skip the prompt since the
+      // user would see every option already excluded.
+      return _expandWithNotice(forcedExclusions);
     }
     if (yes) return <String>{};
 
