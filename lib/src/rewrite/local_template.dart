@@ -15,6 +15,10 @@ const _skipDirs = {
   '.symlinks',
 };
 
+/// File names never worth copying: OS/editor junk that the source tree may carry
+/// (gitignored, so absent from a remote clone but present in a local checkout).
+const _skipFiles = {'.DS_Store'};
+
 /// Copies the template tree at [fromDir] into [toDir], skipping VCS and build
 /// caches ([_skipDirs]) and symlinks.
 ///
@@ -39,6 +43,7 @@ Future<void> _copyDir(Directory from, Directory to) async {
       if (_skipDirs.contains(name)) continue;
       await _copyDir(entity, Directory(p.join(to.path, name)));
     } else if (entity is File) {
+      if (_skipFiles.contains(name)) continue;
       await entity.copy(p.join(to.path, name));
     }
     // Links fall through: a template's symlinks (e.g. ios/.symlinks) are build

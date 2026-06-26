@@ -27,7 +27,14 @@ Future<void> _rewriteTextFiles(String dir, ProjectConfig config) async {
     if (_isBinaryExtension(entity.path)) continue;
     if (_isExcludedPath(entity.path)) continue;
 
-    final original = await entity.readAsString();
+    final String original;
+    try {
+      original = await entity.readAsString();
+    } on FileSystemException {
+      // Not UTF-8 text (e.g. a binary file with no recognised extension, such
+      // as a stray .DS_Store). There is nothing to substitute — skip it.
+      continue;
+    }
     final patched = _applySubstitutions(original, config);
     if (patched != original) {
       await entity.writeAsString(patched);
