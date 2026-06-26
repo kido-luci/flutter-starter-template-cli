@@ -629,17 +629,17 @@ class CreateCommand extends Command<int> {
         );
         return null;
       }
-      if (!useAuth) {
-        _logger.err(
-          '--auth-provider firebase requires the auth pillar to be enabled. '
-          'Remove --no-auth to use Firebase Auth.',
-        );
-        return null;
-      }
       if (!useBackend) {
         _logger.err(
           '--auth-provider firebase requires the backend pillar to be enabled. '
           'Remove --no-backend (or --minimal) to use Firebase Auth.',
+        );
+        return null;
+      }
+      if (!useAuth) {
+        _logger.err(
+          '--auth-provider firebase requires the auth pillar to be enabled. '
+          'Remove --no-auth to use Firebase Auth.',
         );
         return null;
       }

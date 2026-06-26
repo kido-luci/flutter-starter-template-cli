@@ -537,10 +537,9 @@ import '../local/${n.snake}_local_data_source.dart';
 
 @LazySingleton(as: ${n.pascal}Repository)
 class ${n.pascal}RepositoryImpl implements ${n.pascal}Repository {
-  ${n.pascal}RepositoryImpl(this._local, this._uuid);
+  ${n.pascal}RepositoryImpl(this._local);
 
   final ${n.pascal}LocalDataSource _local;
-  final Uuid _uuid;
 
   @override
   Future<Result<List<${n.pascal}>>> list() async {
@@ -550,7 +549,7 @@ class ${n.pascal}RepositoryImpl implements ${n.pascal}Repository {
 
   @override
   Future<Result<${n.pascal}>> create(String title) async {
-    final item = ${n.pascal}(id: _uuid.v4(), title: title.trim());
+    final item = ${n.pascal}(id: const Uuid().v4(), title: title.trim());
     final saved = await _local.insert(item);
     return Ok(saved);
   }

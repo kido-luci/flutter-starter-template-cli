@@ -100,6 +100,7 @@ Future<void> applyFirebaseAuthProvider(String projectDir) async {
     'lib/src/data/models/refresh_token_request.dart',
     'lib/src/data/models/refresh_token_request.freezed.dart',
     'lib/src/data/models/refresh_token_request.g.dart',
+    'lib/src/data/models/refresh_token_response.dart',
     'lib/src/data/models/refresh_token_response.freezed.dart',
     'lib/src/data/models/refresh_token_response.g.dart',
     'lib/src/data/models/register_request.dart',
