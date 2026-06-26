@@ -47,6 +47,11 @@ fst create [options]
     --org             Organisation / author (skips the prompt)
 -o, --output-dir       Directory to create the project in (default: <package-name>)
     --[no-]firebase    Wire Firebase (default on); --no-firebase scaffolds without it
+    --[no-]auth        Include the auth pillar (default on); --no-auth removes login,
+                       session management, and the auth package
+    --[no-]backend     Include the backend pillar (default on); --no-backend scaffolds
+                       a fully local-only app (implies --no-auth)
+    --minimal          --no-backend + --no-firebase; the leanest scaffold (not negatable)
     --exclude-feature  Demo feature(s) to leave out (repeatable): bookmarks,
                        collections, notifications
     --api-url          Base URL for the staging & prod env files (dev keeps localhost)
@@ -83,6 +88,34 @@ deselect them in the interactive multi-select; the CLI strips each feature's
 `// fst:feature:<name>` regions from the app wiring and deletes its package.
 Because `bookmarks` depends on `collections`, excluding `collections` also
 excludes `bookmarks`.
+
+### Optional pillars
+
+Three flags let you strip major pillars at scaffold time so the generated
+project compiles cleanly with no leftover stubs.
+
+**`--no-auth`** — Removes the auth pillar. Deletes
+`packages/features/auth`, strips auth-specific UI from `profile` (leaving a
+Settings screen with theme toggle and about only — the user header,
+change-password, delete-account, and sign-out actions are gone), and removes
+auth wiring from the router and DI graph. The splash screen waits its minimum
+display time then proceeds directly.
+
+**`--no-backend`** — Scaffolds a fully local-only app. This is a composite
+flag: it implies `--no-auth` (no server means no JWT), removes the three
+server-backed demo features (`bookmarks`, `collections`, `notifications`), and
+strips the `network` and `sync_connectivity_plus` packages along with the app's
+sync cursor store. The `rev_sync` engine itself **stays** — `database` entities
+use its types — but no sync runs. What remains: `home`, `profile` (Settings),
+`splash`, and on-device ObjectBox storage.
+
+**`--minimal`** — Equivalent to `--no-backend --no-firebase`. The leanest
+possible scaffold: local-only, no Firebase, no accounts. `--minimal` is not
+negatable.
+
+Composition rules:
+- `--no-backend` implies `--no-auth`.
+- `--minimal` = `--no-backend --no-firebase`.
 
 ### API base URL & launcher icon
 
