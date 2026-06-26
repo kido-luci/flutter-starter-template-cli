@@ -12,6 +12,7 @@ import '../rewrite/env.dart';
 import '../rewrite/features.dart';
 import '../rewrite/firebase.dart';
 import '../rewrite/icon.dart';
+import '../rewrite/local_template.dart';
 import '../rewrite/rewriter.dart';
 import '../validators.dart';
 
@@ -75,6 +76,12 @@ class CreateCommand extends Command<int> {
         'no-setup',
         negatable: false,
         help: 'Skip running tool/setup.sh after scaffolding.',
+      )
+      ..addOption(
+        'template-path',
+        help: 'Scaffold from a local template checkout instead of cloning the '
+            'remote (useful offline, for a fork, or to test an unpublished '
+            'template).',
       );
   }
 
@@ -188,30 +195,47 @@ class CreateCommand extends Command<int> {
       outputDir: outputDir,
     );
 
-    // ── 3. Clone ─────────────────────────────────────────────────────────────
+    // ── 3. Acquire the template ──────────────────────────────────────────────
+    // Either clone the remote (default) or copy a local checkout
+    // (--template-path). The clean-slate + rewrite steps below run over the
+    // result either way.
 
     if (Directory(outputDir).existsSync()) {
       _logger.err('Directory already exists: $outputDir');
       return 1;
     }
 
-    final cloneProgress = _logger.progress('Cloning template');
-    final cloneResult = await Process.run(
-      'git',
-      [
-        'clone',
-        '--recurse-submodules',
-        '--depth=1',
-        _templateRepo,
-        outputDir,
-      ],
-    );
-    if (cloneResult.exitCode != 0) {
-      cloneProgress.fail('Clone failed');
-      _logger.err(cloneResult.stderr as String);
-      return 1;
+    final templatePath = argResults?['template-path'] as String?;
+    if (templatePath != null) {
+      final source = p.absolute(templatePath);
+      final copyProgress = _logger.progress('Copying template from $source');
+      try {
+        await copyLocalTemplate(source, outputDir);
+        copyProgress.complete('Template copied');
+      } catch (e) {
+        copyProgress.fail('Copy failed');
+        _logger.err('$e');
+        return 1;
+      }
+    } else {
+      final cloneProgress = _logger.progress('Cloning template');
+      final cloneResult = await Process.run(
+        'git',
+        [
+          'clone',
+          '--recurse-submodules',
+          '--depth=1',
+          _templateRepo,
+          outputDir,
+        ],
+      );
+      if (cloneResult.exitCode != 0) {
+        cloneProgress.fail('Clone failed');
+        _logger.err(cloneResult.stderr as String);
+        return 1;
+      }
+      cloneProgress.complete('Template cloned');
     }
-    cloneProgress.complete('Template cloned');
 
     // ── 4. Clean slate ───────────────────────────────────────────────────────
     // Drop the vendored submodules (demo backend + CLI source) and the

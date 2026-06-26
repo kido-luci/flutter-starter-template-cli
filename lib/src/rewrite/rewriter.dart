@@ -75,7 +75,7 @@ Future<void> _moveMainActivityFile(
     'src',
     'main',
     'kotlin',
-    ...'com.lucistudio.flutter_starter_template'.split('.'),
+    ..._templateBundleIdAndroid.split('.'),
     'MainActivity.kt',
   ]);
   final oldPath = p.join(projectDir, oldRelative);
