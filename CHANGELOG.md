@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.2.0
+
+Composable pillars + project-shape knobs, so one template serves many project
+shapes.
+
+- **Optional pillars (`fst create`)**: `--no-auth` (scaffold a user-less app;
+  `profile` trims to a Settings screen), `--no-backend` (a fully local-only
+  app — implies `--no-auth`, drops the server-backed demo features, strips
+  `network`/`sync_connectivity_plus`; `rev_sync` stays), and `--minimal`
+  (`--no-backend --no-firebase`).
+- **Feature sources (`fst add-feature --source`)**: scaffold a data+domain layer
+  — `local` (in-feature in-memory store), `api` (Retrofit over the shared
+  `Dio`), or `sync` (the `api` layer plus guided offline-first `rev_sync` stubs
+  and a `SYNC_TODO.md`). Default `presentation` is unchanged.
+- **Branding (`fst create`)**: `--scheme` (in-app FlexColorScheme), `--seed-color`
+  (launcher-icon + web brand hex), and `--font` (the Google Fonts text theme).
+- **Auth provider (`fst create --auth-provider`)**: `jwt` (default, REST/JWT) or
+  `firebase` (swaps the auth data layer for a Firebase Auth implementation).
+
 ## 1.1.0
 
 - **`fst create --template-path <dir>`**: scaffold from a local template checkout
