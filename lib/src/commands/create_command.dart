@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import '../config_resolver.dart';
 import '../project_config.dart';
 import '../rewrite/auth.dart';
+import '../rewrite/auth_provider.dart';
 import '../rewrite/backend.dart';
 import '../rewrite/branding.dart';
 import '../rewrite/clean_slate.dart';
@@ -104,6 +105,15 @@ class CreateCommand extends Command<int> {
             '(e.g. roboto, openSans, lato). '
             'Must be a valid google_fonts TextTheme method prefix.',
       )
+      ..addOption(
+        'auth-provider',
+        allowed: ['jwt', 'firebase'],
+        defaultsTo: 'jwt',
+        help: 'Auth backend implementation (default: jwt — the built-in '
+            'JWT/REST layer). Use firebase to replace the data layer with '
+            'Firebase Auth. Requires --firebase and --auth; incompatible with '
+            '--no-firebase, --no-auth, --no-backend, and --minimal.',
+      )
       ..addFlag(
         'yes',
         abbr: 'y',
@@ -184,6 +194,14 @@ class CreateCommand extends Command<int> {
     final useBackend = _resolveBackend(yes: yes, forceDisabled: minimal);
     final useAuth = _resolveAuth(yes: yes, forceDisabled: !useBackend);
 
+    final authProvider = _resolveAuthProvider(
+      yes: yes,
+      useFirebase: useFirebase,
+      useAuth: useAuth,
+      useBackend: useBackend,
+    );
+    if (authProvider == null) return 1;
+
     final excludedFeatures = _resolveExcludedFeatures(
       yes: yes,
       // --no-backend forces exclusion of all server-backed demo features.
@@ -226,6 +244,9 @@ class CreateCommand extends Command<int> {
     );
     _logger.info(
       '  Auth           ${lightCyan.wrap(useAuth ? 'enabled' : 'disabled')}',
+    );
+    _logger.info(
+      '  Auth provider  ${lightCyan.wrap(authProvider)}',
     );
     if (excludedFeatures.isNotEmpty) {
       _logger.info(
@@ -362,6 +383,22 @@ class CreateCommand extends Command<int> {
         authProgress.complete('Auth pillar removed');
       } catch (e) {
         authProgress.fail('Removing auth pillar failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
+    // ── 5b2b. Apply Firebase Auth provider ───────────────────────────────────
+    // Runs only when auth is kept AND the user selected firebase. Must run
+    // AFTER disableAuth (which is skipped) and BEFORE excludeFeatures/setup.
+    if (useAuth && authProvider == 'firebase') {
+      final providerProgress =
+          _logger.progress('Switching auth provider to Firebase Auth');
+      try {
+        await applyFirebaseAuthProvider(outputDir);
+        providerProgress.complete('Firebase Auth provider applied');
+      } catch (e) {
+        providerProgress.fail('Switching auth provider failed');
         _logger.err('$e');
         return 1;
       }
@@ -568,6 +605,59 @@ class CreateCommand extends Command<int> {
       prompt: 'Include auth (login / register)?',
       defaultValue: true,
     ).interact();
+  }
+
+  /// Resolves the auth provider. `--auth-provider` wins; interactive runs
+  /// prompt; `--yes` keeps the default (`jwt`). Returns `null` when validation
+  /// fails (the caller logs and exits non-zero).
+  ///
+  /// `firebase` is only valid when Firebase, auth, AND backend are all enabled.
+  String? _resolveAuthProvider({
+    required bool yes,
+    required bool useFirebase,
+    required bool useAuth,
+    required bool useBackend,
+  }) {
+    final flag = argResults?['auth-provider'] as String? ?? 'jwt';
+    final isFirebase = flag == 'firebase';
+
+    if (isFirebase) {
+      if (!useFirebase) {
+        _logger.err(
+          '--auth-provider firebase requires Firebase to be enabled. '
+          'Remove --no-firebase (or --minimal) to use Firebase Auth.',
+        );
+        return null;
+      }
+      if (!useAuth) {
+        _logger.err(
+          '--auth-provider firebase requires the auth pillar to be enabled. '
+          'Remove --no-auth to use Firebase Auth.',
+        );
+        return null;
+      }
+      if (!useBackend) {
+        _logger.err(
+          '--auth-provider firebase requires the backend pillar to be enabled. '
+          'Remove --no-backend (or --minimal) to use Firebase Auth.',
+        );
+        return null;
+      }
+    }
+
+    // If the flag was explicitly set, use it directly.
+    if (argResults?.wasParsed('auth-provider') ?? false) return flag;
+
+    // Under --yes or when auth/firebase are disabled, default to jwt.
+    if (yes || !useAuth || !useFirebase || !useBackend) return 'jwt';
+
+    // Interactive: offer a select prompt, defaulting to jwt.
+    final options = ['jwt', 'firebase'];
+    final selected = Select(
+      prompt: 'Auth provider',
+      options: options,
+    ).interact();
+    return options[selected];
   }
 
   /// Resolves the demo features to exclude. `--exclude-feature` (validated)

@@ -52,6 +52,7 @@ fst create [options]
     --[no-]backend     Include the backend pillar (default on); --no-backend scaffolds
                        a fully local-only app (implies --no-auth)
     --minimal          --no-backend + --no-firebase; the leanest scaffold (not negatable)
+    --auth-provider    Auth backend: jwt (default, REST/JWT) or firebase (Firebase Auth)
     --exclude-feature  Demo feature(s) to leave out (repeatable): bookmarks,
                        collections, notifications
     --api-url          Base URL for the staging & prod env files (dev keeps localhost)
