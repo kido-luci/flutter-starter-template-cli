@@ -56,6 +56,9 @@ fst create [options]
                        collections, notifications
     --api-url          Base URL for the staging & prod env files (dev keeps localhost)
     --icon             Path to a square PNG used to generate the launcher icon
+    --scheme           In-app theme: a FlexColorScheme name (e.g. deepPurple, indigo)
+    --seed-color       Brand color (hex) for the launcher icon + web
+    --font             App font: a google_fonts method prefix (e.g. roboto, openSans)
 -y, --yes              Run non-interactively: no prompts, no confirmation
     --no-setup         Skip running tool/setup.sh after scaffolding
 ```
