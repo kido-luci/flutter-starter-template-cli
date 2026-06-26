@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../config_resolver.dart';
 import '../project_config.dart';
+import '../rewrite/auth.dart';
 import '../rewrite/clean_slate.dart';
 import '../rewrite/env.dart';
 import '../rewrite/features.dart';
@@ -49,6 +50,12 @@ class CreateCommand extends Command<int> {
         defaultsTo: true,
         help: 'Wire Firebase (default). Use --no-firebase to scaffold without '
             'it: no Firebase project needed to build and run.',
+      )
+      ..addFlag(
+        'auth',
+        defaultsTo: true,
+        help: 'Include the auth pillar (default). Use --no-auth to scaffold a '
+            'user-less app: no login/register screens or session management.',
       )
       ..addMultiOption(
         'exclude-feature',
@@ -138,6 +145,8 @@ class CreateCommand extends Command<int> {
 
     final useFirebase = _resolveFirebase(yes: yes);
 
+    final useAuth = _resolveAuth(yes: yes);
+
     final excludedFeatures = _resolveExcludedFeatures(yes: yes);
     if (excludedFeatures == null) return 1;
 
@@ -161,6 +170,9 @@ class CreateCommand extends Command<int> {
     _logger.info('  Output dir     ${lightCyan.wrap(outputDir)}');
     _logger.info(
       '  Firebase       ${lightCyan.wrap(useFirebase ? 'enabled' : 'disabled')}',
+    );
+    _logger.info(
+      '  Auth           ${lightCyan.wrap(useAuth ? 'enabled' : 'disabled')}',
     );
     if (excludedFeatures.isNotEmpty) {
       _logger.info(
@@ -274,6 +286,20 @@ class CreateCommand extends Command<int> {
         firebaseProgress.complete('Firebase disabled');
       } catch (e) {
         firebaseProgress.fail('Disabling Firebase failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
+    // ── 5b2. Disable auth ────────────────────────────────────────────────────
+    // Before setup so codegen (router.g.dart, DI) sees the auth-stripped tree.
+    if (!useAuth) {
+      final authProgress = _logger.progress('Removing auth pillar');
+      try {
+        await disableAuth(outputDir);
+        authProgress.complete('Auth pillar removed');
+      } catch (e) {
+        authProgress.fail('Removing auth pillar failed');
         _logger.err('$e');
         return 1;
       }
@@ -413,6 +439,18 @@ class CreateCommand extends Command<int> {
     }
     if (yes) return true;
     return Confirm(prompt: 'Use Firebase?', defaultValue: true).interact();
+  }
+
+  /// Resolves whether to include the auth pillar. An explicit
+  /// `--auth`/`--no-auth` wins; otherwise non-interactive runs default to on
+  /// and interactive runs prompt.
+  bool _resolveAuth({required bool yes}) {
+    if (argResults?.wasParsed('auth') ?? false) {
+      return argResults?['auth'] as bool? ?? true;
+    }
+    if (yes) return true;
+    return Confirm(prompt: 'Include auth (login / register)?', defaultValue: true)
+        .interact();
   }
 
   /// Resolves the demo features to exclude. `--exclude-feature` (validated)
