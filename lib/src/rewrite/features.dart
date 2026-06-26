@@ -76,6 +76,10 @@ Future<void> excludeFeatures(String projectDir, Set<String> features) async {
   // so the trimmed project has no unused imports/declarations.
   final stripInfra = removableFeatures.difference(features).isEmpty;
 
+  // Phase 1: compute every rewrite in memory. `removeFeatureRegions` throws on a
+  // malformed (unclosed) marker block, so a bad file aborts here — before any
+  // file is written — rather than leaving a half-stripped tree behind.
+  final pending = <File, String>{};
   for (final relative in _wiringFiles) {
     final file = File(p.join(projectDir, p.joinAll(relative.split('/'))));
     if (!file.existsSync()) continue;
@@ -88,8 +92,12 @@ Future<void> excludeFeatures(String projectDir, Set<String> features) async {
     if (content == original) continue;
     // Removing a region at end-of-file can drop the trailing newline; normalise
     // to exactly one so the result passes the `eol_at_end_of_file` lint.
-    file.writeAsStringSync('${content.trimRight()}\n');
+    pending[file] = '${content.trimRight()}\n';
   }
+
+  // Phase 2: every rewrite computed cleanly — commit them, then drop the
+  // excluded feature packages.
+  pending.forEach((file, content) => file.writeAsStringSync(content));
 
   for (final feature in features) {
     final dir = Directory(

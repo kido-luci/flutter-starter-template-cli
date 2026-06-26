@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0
+
+- **`fst create --template-path <dir>`**: scaffold from a local template checkout
+  instead of cloning the remote — useful offline, for a fork, or to smoke-test
+  the CLI against an unpublished template. VCS and build caches are skipped.
+- **Atomic wiring rewrites**: `fst create` feature exclusion and `fst add-feature`
+  now compute every file rewrite in memory and validate all markers *before*
+  writing anything. A misconfigured project (missing/unclosed marker) fails
+  cleanly instead of leaving a half-stripped or half-wired tree. `add-feature`
+  also rolls back the scaffolded package if wiring fails.
+- Fixed a duplicated hardcoded template bundle ID in the `MainActivity.kt` move
+  (now derived from the single template-identifier constant).
+
 ## 1.0.1
 
 The template's published submodules were grouped under a top-level `published/`

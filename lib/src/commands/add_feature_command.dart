@@ -62,6 +62,18 @@ class AddFeatureCommand extends Command<int> {
       return 1;
     }
 
+    // Pre-compute the app wiring before touching disk. Each transform throws
+    // FeatureWiringException if its marker is missing, so a misconfigured
+    // project fails here — before anything is scaffolded or rewritten — instead
+    // of leaving a half-wired tree.
+    final Map<String, String> wiringEdits;
+    try {
+      wiringEdits = _planWiring(root, names);
+    } on FeatureWiringException catch (error) {
+      _logger.err(error.message);
+      return 1;
+    }
+
     final scaffold = _logger.progress('Scaffolding ${names.package}');
     try {
       featureFiles(names).forEach((relative, content) {
@@ -72,32 +84,23 @@ class AddFeatureCommand extends Command<int> {
       scaffold.complete('Scaffolded ${names.package}');
     } on Object catch (error) {
       scaffold.fail('Scaffold failed');
+      _rollback(featureDir);
       _logger.err('$error');
       return 1;
     }
 
     final wire = _logger.progress('Wiring into the app');
     try {
-      _rewrite(
-        p.join(root, 'pubspec.yaml'),
-        (content) => addFeatureToPubspec(content, names),
-      );
-      _rewrite(
-        p.join(root, 'lib', 'app', 'di', 'injection.dart'),
-        (content) => addFeatureToInjection(content, names),
-      );
-      _rewrite(
-        p.join(root, 'lib', 'app', 'features.dart'),
-        (content) => addFeatureToFeatures(content, names),
+      wiringEdits.forEach(
+        (path, content) => File(path).writeAsStringSync(content),
       );
       wire.complete('Wired into the app');
-    } on FeatureWiringException catch (error) {
+    } on Object catch (error) {
+      // Markers were validated above, so this is an unexpected I/O failure.
+      // Roll back the scaffolded package so the run leaves no half-wired tree.
       wire.fail('Wiring failed');
-      _logger.err(error.message);
-      _logger.warn(
-        'Scaffolded files left at ${p.relative(featureDir, from: root)} for '
-        'inspection.',
-      );
+      _rollback(featureDir);
+      _logger.err('$error');
       return 1;
     }
 
@@ -138,9 +141,26 @@ class AddFeatureCommand extends Command<int> {
       File(p.join(root, 'pubspec.yaml')).existsSync() &&
       File(p.join(root, 'lib', 'app', 'features.dart')).existsSync();
 
-  void _rewrite(String path, String Function(String) transform) {
-    final file = File(path);
-    file.writeAsStringSync(transform(file.readAsStringSync()));
+  /// Computes the three app-wiring file rewrites in memory, keyed by path.
+  ///
+  /// Pure: it only reads and transforms, never writes. A missing marker makes
+  /// the relevant transform throw [FeatureWiringException], which is how the
+  /// caller validates the project before scaffolding.
+  Map<String, String> _planWiring(String root, FeatureNames names) {
+    final pubspec = p.join(root, 'pubspec.yaml');
+    final injection = p.join(root, 'lib', 'app', 'di', 'injection.dart');
+    final features = p.join(root, 'lib', 'app', 'features.dart');
+    return {
+      pubspec: addFeatureToPubspec(File(pubspec).readAsStringSync(), names),
+      injection:
+          addFeatureToInjection(File(injection).readAsStringSync(), names),
+      features: addFeatureToFeatures(File(features).readAsStringSync(), names),
+    };
+  }
+
+  void _rollback(String featureDir) {
+    final dir = Directory(featureDir);
+    if (dir.existsSync()) dir.deleteSync(recursive: true);
   }
 
   Future<bool> _runCodegen(String root) async {
