@@ -52,10 +52,14 @@ fst create [options]
     --[no-]backend     Include the backend pillar (default on); --no-backend scaffolds
                        a fully local-only app (implies --no-auth)
     --minimal          --no-backend + --no-firebase; the leanest scaffold (not negatable)
+    --auth-provider    Auth backend: jwt (default, REST/JWT) or firebase (Firebase Auth)
     --exclude-feature  Demo feature(s) to leave out (repeatable): bookmarks,
                        collections, notifications
     --api-url          Base URL for the staging & prod env files (dev keeps localhost)
     --icon             Path to a square PNG used to generate the launcher icon
+    --scheme           In-app theme: a FlexColorScheme name (e.g. deepPurple, indigo)
+    --seed-color       Brand color (hex) for the launcher icon + web
+    --font             App font: a google_fonts method prefix (e.g. roboto, openSans)
 -y, --yes              Run non-interactively: no prompts, no confirmation
     --no-setup         Skip running tool/setup.sh after scaffolding
 ```

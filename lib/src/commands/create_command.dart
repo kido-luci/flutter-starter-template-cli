@@ -8,7 +8,9 @@ import 'package:path/path.dart' as p;
 import '../config_resolver.dart';
 import '../project_config.dart';
 import '../rewrite/auth.dart';
+import '../rewrite/auth_provider.dart';
 import '../rewrite/backend.dart';
+import '../rewrite/branding.dart';
 import '../rewrite/clean_slate.dart';
 import '../rewrite/env.dart';
 import '../rewrite/features.dart';
@@ -86,6 +88,31 @@ class CreateCommand extends Command<int> {
       ..addOption(
         'icon',
         help: 'Path to a square PNG used to generate the launcher icon.',
+      )
+      ..addOption(
+        'scheme',
+        help: 'Material theme scheme (FlexColorScheme). '
+            'Valid: ${validFlexSchemes.join(', ')}.',
+      )
+      ..addOption(
+        'seed-color',
+        help: 'Brand hex color for the launcher icon & web manifest '
+            '(e.g. #FF5722 or FF5722). Does not change the in-app theme.',
+      )
+      ..addOption(
+        'font',
+        help: 'Google Fonts method prefix for the app font '
+            '(e.g. roboto, openSans, lato). '
+            'Must be a valid google_fonts TextTheme method prefix.',
+      )
+      ..addOption(
+        'auth-provider',
+        allowed: ['jwt', 'firebase'],
+        defaultsTo: 'jwt',
+        help: 'Auth backend implementation (default: jwt — the built-in '
+            'JWT/REST layer). Use firebase to replace the data layer with '
+            'Firebase Auth. Requires --firebase and --auth; incompatible with '
+            '--no-firebase, --no-auth, --no-backend, and --minimal.',
       )
       ..addFlag(
         'yes',
@@ -167,6 +194,14 @@ class CreateCommand extends Command<int> {
     final useBackend = _resolveBackend(yes: yes, forceDisabled: minimal);
     final useAuth = _resolveAuth(yes: yes, forceDisabled: !useBackend);
 
+    final authProvider = _resolveAuthProvider(
+      yes: yes,
+      useFirebase: useFirebase,
+      useAuth: useAuth,
+      useBackend: useBackend,
+    );
+    if (authProvider == null) return 1;
+
     final excludedFeatures = _resolveExcludedFeatures(
       yes: yes,
       // --no-backend forces exclusion of all server-backed demo features.
@@ -179,6 +214,15 @@ class CreateCommand extends Command<int> {
 
     final icon = _resolveIcon(yes: yes);
     if (!icon.ok) return 1;
+
+    final scheme = _resolveScheme(yes: yes);
+    if (!scheme.ok) return 1;
+
+    final seedColor = _resolveSeedColor(yes: yes);
+    if (!seedColor.ok) return 1;
+
+    final font = _resolveFont(yes: yes);
+    if (!font.ok) return 1;
 
     final defaultOutput = argResults?['output-dir'] as String? ?? packageName;
     final outputDir = p.absolute(defaultOutput);
@@ -201,6 +245,9 @@ class CreateCommand extends Command<int> {
     _logger.info(
       '  Auth           ${lightCyan.wrap(useAuth ? 'enabled' : 'disabled')}',
     );
+    _logger.info(
+      '  Auth provider  ${lightCyan.wrap(authProvider)}',
+    );
     if (excludedFeatures.isNotEmpty) {
       _logger.info(
         '  Exclude        ${lightCyan.wrap(excludedFeatures.join(', '))}',
@@ -211,6 +258,15 @@ class CreateCommand extends Command<int> {
     }
     if (icon.path != null) {
       _logger.info('  App icon       ${lightCyan.wrap(icon.path!)}');
+    }
+    if (scheme.name != null) {
+      _logger.info('  Scheme         ${lightCyan.wrap(scheme.name!)}');
+    }
+    if (seedColor.hex != null) {
+      _logger.info('  Brand color    ${lightCyan.wrap(seedColor.hex!)}');
+    }
+    if (font.name != null) {
+      _logger.info('  Font           ${lightCyan.wrap(font.name!)}');
     }
     _logger.info('');
 
@@ -332,6 +388,22 @@ class CreateCommand extends Command<int> {
       }
     }
 
+    // ── 5b2b. Apply Firebase Auth provider ───────────────────────────────────
+    // Runs only when auth is kept AND the user selected firebase. Must run
+    // AFTER disableAuth (which is skipped) and BEFORE excludeFeatures/setup.
+    if (useAuth && authProvider == 'firebase') {
+      final providerProgress =
+          _logger.progress('Switching auth provider to Firebase Auth');
+      try {
+        await applyFirebaseAuthProvider(outputDir);
+        providerProgress.complete('Firebase Auth provider applied');
+      } catch (e) {
+        providerProgress.fail('Switching auth provider failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
     // ── 5b3. Disable backend ─────────────────────────────────────────────────
     // After auth (auth strips fst:auth regions; backend strips fst:backend
     // regions — distinct marker names so they never touch the same lines).
@@ -370,6 +442,23 @@ class CreateCommand extends Command<int> {
         envProgress.complete('API base URL set');
       } catch (e) {
         envProgress.fail('Setting API base URL failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
+    if (scheme.name != null || seedColor.hex != null || font.name != null) {
+      final brandProgress = _logger.progress('Applying branding');
+      try {
+        await applyBranding(
+          outputDir,
+          scheme: scheme.name,
+          seedColor: seedColor.hex,
+          font: font.name,
+        );
+        brandProgress.complete('Branding applied');
+      } catch (e) {
+        brandProgress.fail('Applying branding failed');
         _logger.err('$e');
         return 1;
       }
@@ -518,6 +607,59 @@ class CreateCommand extends Command<int> {
     ).interact();
   }
 
+  /// Resolves the auth provider. `--auth-provider` wins; interactive runs
+  /// prompt; `--yes` keeps the default (`jwt`). Returns `null` when validation
+  /// fails (the caller logs and exits non-zero).
+  ///
+  /// `firebase` is only valid when Firebase, auth, AND backend are all enabled.
+  String? _resolveAuthProvider({
+    required bool yes,
+    required bool useFirebase,
+    required bool useAuth,
+    required bool useBackend,
+  }) {
+    final flag = argResults?['auth-provider'] as String? ?? 'jwt';
+    final isFirebase = flag == 'firebase';
+
+    if (isFirebase) {
+      if (!useFirebase) {
+        _logger.err(
+          '--auth-provider firebase requires Firebase to be enabled. '
+          'Remove --no-firebase (or --minimal) to use Firebase Auth.',
+        );
+        return null;
+      }
+      if (!useBackend) {
+        _logger.err(
+          '--auth-provider firebase requires the backend pillar to be enabled. '
+          'Remove --no-backend (or --minimal) to use Firebase Auth.',
+        );
+        return null;
+      }
+      if (!useAuth) {
+        _logger.err(
+          '--auth-provider firebase requires the auth pillar to be enabled. '
+          'Remove --no-auth to use Firebase Auth.',
+        );
+        return null;
+      }
+    }
+
+    // If the flag was explicitly set, use it directly.
+    if (argResults?.wasParsed('auth-provider') ?? false) return flag;
+
+    // Under --yes or when auth/firebase are disabled, default to jwt.
+    if (yes || !useAuth || !useFirebase || !useBackend) return 'jwt';
+
+    // Interactive: offer a select prompt, defaulting to jwt.
+    final options = ['jwt', 'firebase'];
+    final selected = Select(
+      prompt: 'Auth provider',
+      options: options,
+    ).interact();
+    return options[selected];
+  }
+
   /// Resolves the demo features to exclude. `--exclude-feature` (validated)
   /// wins; otherwise a multi-select prompt (interactive) or none (`--yes`).
   /// [forcedExclusions] (set when `--no-backend` removes all server-backed
@@ -626,6 +768,100 @@ class CreateCommand extends Command<int> {
     if (!isPngPath(path)) return 'Icon must be a .png file: $path';
     if (!File(path).existsSync()) return 'Icon file not found: $path';
     return null;
+  }
+
+  /// Resolves the Material theme scheme. `--scheme` (validated) wins; otherwise
+  /// a prompt (interactive) or keep-template (`--yes`). `name` is null to keep
+  /// the template default; `ok` is false on an invalid `--scheme`.
+  ({bool ok, String? name}) _resolveScheme({required bool yes}) {
+    final flag = argResults?['scheme'] as String?;
+    if (flag != null) {
+      if (!validFlexSchemes.contains(flag)) {
+        _logger.err(
+          'Invalid --scheme "$flag". '
+          'Valid: ${validFlexSchemes.join(', ')}.',
+        );
+        return (ok: false, name: null);
+      }
+      return (ok: true, name: flag);
+    }
+    if (yes) return (ok: true, name: null);
+
+    final entered = Input(
+      prompt: 'Theme scheme — FlexColorScheme name (blank to keep template)',
+      validator: (v) {
+        if (v.trim().isEmpty || validFlexSchemes.contains(v.trim())) {
+          return true;
+        }
+        throw ValidationError(
+          'Must be one of: ${validFlexSchemes.join(', ')}',
+        );
+      },
+    ).interact().trim();
+    return (ok: true, name: entered.isEmpty ? null : entered);
+  }
+
+  /// Resolves the brand seed color. `--seed-color` (validated + normalised)
+  /// wins; otherwise a prompt (interactive) or keep-template (`--yes`). `hex`
+  /// is null to keep the template default; `ok` is false on an invalid value.
+  ({bool ok, String? hex}) _resolveSeedColor({required bool yes}) {
+    final flag = argResults?['seed-color'] as String?;
+    if (flag != null) {
+      final normalised = normaliseSeedColor(flag);
+      if (normalised == null) {
+        _logger.err(
+          'Invalid --seed-color "$flag": must be 6 hex digits '
+          '(with or without leading #), e.g. #FF5722 or FF5722.',
+        );
+        return (ok: false, hex: null);
+      }
+      return (ok: true, hex: normalised);
+    }
+    if (yes) return (ok: true, hex: null);
+
+    final entered = Input(
+      prompt:
+          'Brand hex color for icon & web manifest (blank to keep template)',
+      validator: (v) {
+        if (v.trim().isEmpty || normaliseSeedColor(v.trim()) != null) {
+          return true;
+        }
+        throw ValidationError(
+          'Must be 6 hex digits, e.g. #FF5722 or FF5722',
+        );
+      },
+    ).interact().trim();
+    if (entered.isEmpty) return (ok: true, hex: null);
+    return (ok: true, hex: normaliseSeedColor(entered)!);
+  }
+
+  /// Resolves the Google Fonts font name. `--font` (validated) wins; otherwise
+  /// a prompt (interactive) or keep-template (`--yes`). `name` is null to keep
+  /// the template default; `ok` is false on an invalid value.
+  ({bool ok, String? name}) _resolveFont({required bool yes}) {
+    final flag = argResults?['font'] as String?;
+    if (flag != null) {
+      if (!isValidFontName(flag)) {
+        _logger.err(
+          'Invalid --font "$flag": must be a lowerCamelCase Dart identifier '
+          '(the google_fonts method prefix, e.g. roboto, openSans, lato).',
+        );
+        return (ok: false, name: null);
+      }
+      return (ok: true, name: flag);
+    }
+    if (yes) return (ok: true, name: null);
+
+    final entered = Input(
+      prompt: 'Google Fonts name — method prefix (blank to keep template)',
+      validator: (v) {
+        if (v.trim().isEmpty || isValidFontName(v.trim())) return true;
+        throw ValidationError(
+          'Must be a Dart identifier, e.g. roboto, openSans, lato',
+        );
+      },
+    ).interact().trim();
+    return (ok: true, name: entered.isEmpty ? null : entered);
   }
 
   bool _hasFvm() {

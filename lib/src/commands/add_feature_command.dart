@@ -10,15 +10,40 @@ import '../rewrite/feature_template.dart';
 import '../rewrite/feature_wiring.dart';
 import '../validators.dart';
 
-/// Scaffolds a new presentation-only feature package and wires it into the app
-/// (workspace, dependency, DI module, and `enabledFeatures`).
+/// Scaffolds a new feature package and wires it into the app (workspace,
+/// dependency, DI module, and `enabledFeatures`).
+///
+/// Use `--source` to control which layers are generated:
+/// - `presentation` (default) — UI layer only, identical to the original scaffold.
+/// - `local` — adds domain (entity + repository interface) and a data layer
+///   with an in-memory store. No network or database dependencies.
+/// - `api` — adds domain and a remote data layer via Retrofit + Dio.
+/// - `sync` — everything in `api` plus offline-first sync stubs (see
+///   the generated `SYNC_TODO.md` for the manual steps).
 class AddFeatureCommand extends Command<int> {
   AddFeatureCommand(this._logger) {
-    argParser.addFlag(
-      'no-codegen',
-      negatable: false,
-      help: 'Skip `flutter pub get` + build_runner after scaffolding.',
-    );
+    argParser
+      ..addFlag(
+        'no-codegen',
+        negatable: false,
+        help: 'Skip `flutter pub get` + build_runner after scaffolding.',
+      )
+      ..addOption(
+        'source',
+        abbr: 's',
+        allowed: ['presentation', 'local', 'api', 'sync'],
+        allowedHelp: {
+          'presentation': 'Presentation layer only (default).',
+          'local':
+              'Adds domain + in-memory data layer. No network/database deps.',
+          'api': 'Adds domain + remote API data layer (Retrofit/Dio).',
+          'sync':
+              'Adds domain + remote API + offline-first sync stubs (rev_sync).',
+        },
+        help: 'The kind of data+domain layer to scaffold alongside the '
+            'presentation layer.',
+        valueHelp: 'kind',
+      );
   }
 
   final Logger _logger;
@@ -27,11 +52,13 @@ class AddFeatureCommand extends Command<int> {
   String get name => 'add-feature';
 
   @override
-  String get description =>
-      'Scaffold and wire a new presentation-only feature package.';
+  String get description => 'Scaffold and wire a new feature package. '
+      'Use --source to add domain/data layers (local, api, sync).';
 
   @override
-  String get invocation => 'fst add-feature <name> [--no-codegen]';
+  String get invocation =>
+      'fst add-feature <name> [--source presentation|local|api|sync] '
+      '[--no-codegen]';
 
   @override
   Future<int> run() async {
@@ -52,6 +79,8 @@ class AddFeatureCommand extends Command<int> {
       );
       return 1;
     }
+
+    final source = _resolveSource();
 
     final names = FeatureNames(rawName);
     final featureDir = p.join(root, 'packages', 'features', names.snake);
@@ -76,7 +105,7 @@ class AddFeatureCommand extends Command<int> {
 
     final scaffold = _logger.progress('Scaffolding ${names.package}');
     try {
-      featureFiles(names).forEach((relative, content) {
+      featureFiles(names, source: source).forEach((relative, content) {
         final file = File(p.join(featureDir, p.joinAll(relative.split('/'))));
         file.parent.createSync(recursive: true);
         file.writeAsStringSync(content);
@@ -115,9 +144,19 @@ class AddFeatureCommand extends Command<int> {
     }
 
     _logger
-      ..success('Feature ${names.package} created and wired.')
+      ..success(
+        'Feature ${names.package} created and wired (source: ${source.name}).',
+      )
       ..info('  Screen route: /${names.kebab}')
       ..info('  Edit packages/features/${names.snake}/ to flesh it out.');
+
+    if (source == FeatureSource.sync) {
+      _logger.info(
+        '  See packages/features/${names.snake}/SYNC_TODO.md for the manual '
+        'steps to complete offline-first sync.',
+      );
+    }
+
     return 0;
   }
 
@@ -136,6 +175,27 @@ class AddFeatureCommand extends Command<int> {
       },
     ).interact();
   }
+
+  /// Resolves the `--source` option, prompting interactively when omitted.
+  FeatureSource _resolveSource() {
+    final raw = argResults?['source'] as String?;
+    if (raw != null) return _parseSource(raw);
+    final options = ['presentation', 'local', 'api', 'sync'];
+    final index = Select(
+      prompt: 'Data source',
+      options: options,
+      initialIndex: 0,
+    ).interact();
+    return _parseSource(options[index]);
+  }
+
+  FeatureSource _parseSource(String value) => switch (value) {
+        'presentation' => FeatureSource.presentation,
+        'local' => FeatureSource.local,
+        'api' => FeatureSource.api,
+        'sync' => FeatureSource.sync,
+        _ => FeatureSource.presentation,
+      };
 
   bool _isProjectRoot(String root) =>
       File(p.join(root, 'pubspec.yaml')).existsSync() &&
