@@ -130,6 +130,8 @@ void main() {
             '\t<string>uses the camera.</string>\n'
             '\t<key>NSMicrophoneUsageDescription</key>\n'
             '\t<string>uses the microphone.</string>\n'
+            '\t<key>NSPhotoLibraryUsageDescription</key>\n'
+            '\t<string>uses the photo library.</string>\n'
             '\t<!-- fst:feature:bookmarks:end -->\n'
             '</dict>\n',
       );
@@ -198,6 +200,7 @@ void main() {
       final plist = read('ios/Runner/Info.plist');
       expect(plist, isNot(contains('NSCameraUsageDescription')));
       expect(plist, isNot(contains('NSMicrophoneUsageDescription')));
+      expect(plist, isNot(contains('NSPhotoLibraryUsageDescription')));
       expect(plist, isNot(contains('fst:feature:bookmarks')));
       // Unrelated keys survive.
       expect(plist, contains('CFBundleName'));
@@ -216,6 +219,7 @@ void main() {
       final plist = read('ios/Runner/Info.plist');
       expect(plist, contains('NSCameraUsageDescription'));
       expect(plist, contains('NSMicrophoneUsageDescription'));
+      expect(plist, contains('NSPhotoLibraryUsageDescription'));
 
       final manifest = read('android/app/src/main/AndroidManifest.xml');
       expect(manifest, contains('android.permission.CAMERA'));
