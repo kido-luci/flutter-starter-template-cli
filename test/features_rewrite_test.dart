@@ -117,6 +117,35 @@ void main() {
       );
       write('packages/features/notifications/pubspec.yaml', 'name: x\n');
       write('packages/features/bookmarks/pubspec.yaml', 'name: x\n');
+      // Native config: the media-capture permissions are wrapped in
+      // `fst:feature:bookmarks` markers (XML comments), so they're stripped
+      // with the bookmarks feature.
+      write(
+        'ios/Runner/Info.plist',
+        '<dict>\n'
+            '\t<key>CFBundleName</key>\n'
+            '\t<string>app</string>\n'
+            '\t<!-- fst:feature:bookmarks:start -->\n'
+            '\t<key>NSCameraUsageDescription</key>\n'
+            '\t<string>uses the camera.</string>\n'
+            '\t<key>NSMicrophoneUsageDescription</key>\n'
+            '\t<string>uses the microphone.</string>\n'
+            '\t<!-- fst:feature:bookmarks:end -->\n'
+            '</dict>\n',
+      );
+      write(
+        'android/app/src/main/AndroidManifest.xml',
+        '<manifest>\n'
+            '    <uses-permission '
+            'android:name="android.permission.POST_NOTIFICATIONS"/>\n'
+            '    <!-- fst:feature:bookmarks:start -->\n'
+            '    <uses-permission '
+            'android:name="android.permission.CAMERA" />\n'
+            '    <uses-permission '
+            'android:name="android.permission.RECORD_AUDIO" />\n'
+            '    <!-- fst:feature:bookmarks:end -->\n'
+            '</manifest>\n',
+      );
     });
 
     tearDown(() => dir.deleteSync(recursive: true));
@@ -161,6 +190,36 @@ void main() {
         {'bookmarks', 'collections', 'notifications'},
       );
       expect(read('lib/app/features.dart'), isNot(contains('injection.dart')));
+    });
+
+    test('strips bookmarks media permissions from native config', () async {
+      await excludeFeatures(dir.path, {'bookmarks'});
+
+      final plist = read('ios/Runner/Info.plist');
+      expect(plist, isNot(contains('NSCameraUsageDescription')));
+      expect(plist, isNot(contains('NSMicrophoneUsageDescription')));
+      expect(plist, isNot(contains('fst:feature:bookmarks')));
+      // Unrelated keys survive.
+      expect(plist, contains('CFBundleName'));
+
+      final manifest = read('android/app/src/main/AndroidManifest.xml');
+      expect(manifest, isNot(contains('android.permission.CAMERA')));
+      expect(manifest, isNot(contains('android.permission.RECORD_AUDIO')));
+      expect(manifest, isNot(contains('fst:feature:bookmarks')));
+      // POST_NOTIFICATIONS belongs to the notifications feature, not bookmarks.
+      expect(manifest, contains('android.permission.POST_NOTIFICATIONS'));
+    });
+
+    test('leaves native permissions intact when bookmarks is kept', () async {
+      await excludeFeatures(dir.path, {'notifications'});
+
+      final plist = read('ios/Runner/Info.plist');
+      expect(plist, contains('NSCameraUsageDescription'));
+      expect(plist, contains('NSMicrophoneUsageDescription'));
+
+      final manifest = read('android/app/src/main/AndroidManifest.xml');
+      expect(manifest, contains('android.permission.CAMERA'));
+      expect(manifest, contains('android.permission.RECORD_AUDIO'));
     });
   });
 }

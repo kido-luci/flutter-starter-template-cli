@@ -48,7 +48,14 @@ String removeFeatureRegions(String content, String feature) {
   return kept.join('\n');
 }
 
-/// App-shell wiring + test files that carry `fst:feature:*` regions.
+/// App-shell wiring, test, and native-config files that carry `fst:feature:*`
+/// regions.
+///
+/// The iOS `Info.plist` and Android manifest carry `fst:feature:bookmarks`
+/// regions around the media-capture permission declarations (camera /
+/// microphone / photo library). Those permissions exist only for the
+/// `bookmarks` feature, so they're stripped with it — Apple and Google both
+/// discourage declaring permissions an app never requests.
 const _wiringFiles = [
   'pubspec.yaml',
   'lib/app/di/injection.dart',
@@ -56,6 +63,8 @@ const _wiringFiles = [
   'lib/app/router.dart',
   'lib/app/widgets/app_shell.dart',
   'lib/app/app.dart',
+  'ios/Runner/Info.plist',
+  'android/app/src/main/AndroidManifest.xml',
   'test/widget_test.dart',
   'test/test_utils/mocks.dart',
   'test/architecture/di_module_ordering_test.dart',

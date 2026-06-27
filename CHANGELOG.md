@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Strip orphaned media permissions**: when the `bookmarks` feature is removed
+  (`--exclude-feature bookmarks`/`collections`, or `--no-backend`/`--minimal`),
+  `fst create` now also strips the camera / microphone / photo-library usage
+  declarations from `ios/Runner/Info.plist` and `android/.../AndroidManifest.xml`.
+  Those permissions exist only for the bookmarks media-capture flow, and Apple
+  and Google both discourage declaring permissions an app never requests. Driven
+  by the same `fst:feature:bookmarks` markers used for the Dart wiring.
+
 ## 1.2.0
 
 Composable pillars + project-shape knobs, so one template serves many project
