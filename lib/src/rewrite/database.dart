@@ -204,7 +204,7 @@ class DriftSyncCursorStore implements SyncCursorStore {
 void _writeDriftModule(String projectDir, {required bool useBackend}) {
   final syncImports = useBackend
       ? "import 'package:rev_sync/rev_sync.dart';\n"
-        "import '../sync/drift_sync_cursor_store.dart';\n"
+          "import '../sync/drift_sync_cursor_store.dart';\n"
       : '';
 
   final syncProvider = useBackend
