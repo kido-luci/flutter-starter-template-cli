@@ -435,17 +435,27 @@ class CreateCommand extends Command<int> {
     // ── 5b4. Swap database ───────────────────────────────────────────────────
     // After backend (which strips fst:backend regions) and before features
     // (which may strip the feature factories from the generated drift_module).
-    if (database != 'objectbox') {
-      final dbProgress = _logger.progress('Switching database to $database');
+    // Always runs — even for the default objectbox path, which must strip
+    // fst:db:drift regions and delete packages/database_drift/.
+    {
+      final dbProgress = _logger.progress(
+        database == 'objectbox'
+            ? 'Finalizing database scaffold'
+            : 'Switching database to $database',
+      );
       try {
         await swapDatabase(
           outputDir,
           choice: database,
           useBackend: useBackend,
         );
-        dbProgress.complete('Database switched to $database');
+        dbProgress.complete(
+          database == 'objectbox'
+              ? 'Database scaffold finalized'
+              : 'Database switched to $database',
+        );
       } catch (e) {
-        dbProgress.fail('Switching database failed');
+        dbProgress.fail('Database setup failed');
         _logger.err('$e');
         return 1;
       }
