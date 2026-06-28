@@ -12,6 +12,7 @@ import '../rewrite/auth_provider.dart';
 import '../rewrite/backend.dart';
 import '../rewrite/branding.dart';
 import '../rewrite/clean_slate.dart';
+import '../rewrite/database.dart';
 import '../rewrite/env.dart';
 import '../rewrite/features.dart';
 import '../rewrite/firebase.dart';
@@ -114,6 +115,13 @@ class CreateCommand extends Command<int> {
             'Firebase Auth. Requires --firebase and --auth; incompatible with '
             '--no-firebase, --no-auth, --no-backend, and --minimal.',
       )
+      ..addOption(
+        'database',
+        allowed: ['objectbox', 'drift'],
+        defaultsTo: 'objectbox',
+        help: 'Local database engine (default: objectbox). '
+            'Use drift to scaffold with Drift/SQLite instead of ObjectBox.',
+      )
       ..addFlag(
         'yes',
         abbr: 'y',
@@ -202,6 +210,8 @@ class CreateCommand extends Command<int> {
     );
     if (authProvider == null) return 1;
 
+    final database = _resolveDatabase(yes: yes);
+
     final excludedFeatures = _resolveExcludedFeatures(
       yes: yes,
       // --no-backend forces exclusion of all server-backed demo features.
@@ -247,6 +257,9 @@ class CreateCommand extends Command<int> {
     );
     _logger.info(
       '  Auth provider  ${lightCyan.wrap(authProvider)}',
+    );
+    _logger.info(
+      '  Database       ${lightCyan.wrap(database)}',
     );
     if (excludedFeatures.isNotEmpty) {
       _logger.info(
@@ -414,6 +427,35 @@ class CreateCommand extends Command<int> {
         backendProgress.complete('Backend pillar removed');
       } catch (e) {
         backendProgress.fail('Removing backend pillar failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
+    // ── 5b4. Swap database ───────────────────────────────────────────────────
+    // After backend (which strips fst:backend regions) and before features
+    // (which may strip the feature factories from the generated drift_module).
+    // Always runs — even for the default objectbox path, which must strip
+    // fst:db:drift regions and delete packages/database_drift/.
+    {
+      final dbProgress = _logger.progress(
+        database == 'objectbox'
+            ? 'Finalizing database scaffold'
+            : 'Switching database to $database',
+      );
+      try {
+        await swapDatabase(
+          outputDir,
+          choice: database,
+          useBackend: useBackend,
+        );
+        dbProgress.complete(
+          database == 'objectbox'
+              ? 'Database scaffold finalized'
+              : 'Database switched to $database',
+        );
+      } catch (e) {
+        dbProgress.fail('Database setup failed');
         _logger.err('$e');
         return 1;
       }
@@ -655,6 +697,21 @@ class CreateCommand extends Command<int> {
     final options = ['jwt', 'firebase'];
     final selected = Select(
       prompt: 'Auth provider',
+      options: options,
+    ).interact();
+    return options[selected];
+  }
+
+  /// Resolves the local database engine. `--database` wins; interactive runs
+  /// offer a select prompt; `--yes` keeps the default (`objectbox`).
+  String _resolveDatabase({required bool yes}) {
+    if (argResults?.wasParsed('database') ?? false) {
+      return argResults?['database'] as String? ?? 'objectbox';
+    }
+    if (yes) return 'objectbox';
+    final options = ['objectbox', 'drift'];
+    final selected = Select(
+      prompt: 'Local database engine',
       options: options,
     ).interact();
     return options[selected];
