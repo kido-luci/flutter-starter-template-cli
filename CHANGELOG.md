@@ -1,7 +1,15 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 
+- **Drift/SQLite database (`fst create --database drift`)**: scaffold with
+  [Drift](https://drift.simonbinder.eu/) instead of ObjectBox. The drift path
+  renames `packages/database_drift` → `packages/database`, deletes ObjectBox
+  files, writes a `DriftModule` DI module (with optional sync cursor store when
+  `--backend` is on), and overwrites the three demo-feature data sources with
+  Drift-backed implementations. The default `--database objectbox` path is
+  unchanged; it now always runs the database finalizer step to strip drift
+  marker regions and delete `packages/database_drift/`.
 - **Strip orphaned media permissions**: when the `bookmarks` feature is removed
   (`--exclude-feature bookmarks`/`collections`, or `--no-backend`/`--minimal`),
   `fst create` now also strips the camera / microphone / photo-library usage
