@@ -258,20 +258,27 @@ void _writeDriftModule(String projectDir, {required bool useBackend}) {
       'drift_module.dart',
     ),
   ).writeAsStringSync('''
-// The app shell binds each feature's concrete local data source, which lives
-// under that package's lib/src by design — a feature's barrel exports its
-// public surface, not its persistence internals.
-// ignore_for_file: implementation_imports
-
 import 'package:database/database.dart';
 import 'package:injectable/injectable.dart';
 $syncImports// fst:feature:bookmarks:start
+// The app shell binds each feature's concrete local data source, and that
+// lives under the package's lib/src by design: a barrel exports the feature's
+// public surface, not its persistence internals.
+// ignore: implementation_imports
 import 'package:feature_bookmarks/src/data/local/bookmarks_local_data_source.dart';
 // fst:feature:bookmarks:end
 // fst:feature:collections:start
+// The app shell binds each feature's concrete local data source, and that
+// lives under the package's lib/src by design: a barrel exports the feature's
+// public surface, not its persistence internals.
+// ignore: implementation_imports
 import 'package:feature_collections/src/data/local/collections_local_data_source.dart';
 // fst:feature:collections:end
 // fst:feature:notifications:start
+// The app shell binds each feature's concrete local data source, and that
+// lives under the package's lib/src by design: a barrel exports the feature's
+// public surface, not its persistence internals.
+// ignore: implementation_imports
 import 'package:feature_notifications/src/data/local/notifications_local_data_source.dart';
 // fst:feature:notifications:end
 

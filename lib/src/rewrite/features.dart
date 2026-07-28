@@ -74,6 +74,7 @@ const _wiringFiles = [
   'test/architecture/di_module_ordering_test.dart',
   'test/architecture/package_layering_test.dart',
   'test/architecture/feature_boundaries_test.dart',
+  'test/architecture/ios_permission_strings_test.dart',
   // The Drift package, under both its names: `swapDatabase` renames
   // `database_drift` to `database`, and whether that has run yet depends on
   // the flag combination. Absent paths are skipped, so listing both is safe.
