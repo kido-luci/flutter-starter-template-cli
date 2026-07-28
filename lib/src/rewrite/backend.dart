@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'database.dart';
+
 /// Removes every `fst:backend:start` … `fst:backend:end` block (inclusive)
 /// from [content].
 ///
@@ -38,6 +40,11 @@ const _backendWiringFiles = [
   'pubspec.yaml',
   'lib/app/di/injection.dart',
   'test/architecture/package_layering_test.dart',
+  // The Drift package, still under its pre-rename name: `swapDatabase` runs
+  // after this. On the ObjectBox path these files are stripped and then the
+  // whole directory is deleted, so touching them costs nothing.
+  'packages/database_drift/lib/database.dart',
+  'packages/database_drift/lib/src/app_database.dart',
 ];
 
 /// Files that are wholly backend-only and must be deleted when the backend
@@ -45,6 +52,17 @@ const _backendWiringFiles = [
 const _backendOnlyFiles = [
   'lib/core/data/sync/objectbox_sync_cursor_store.dart',
   'test/architecture/authenticated_dio_test.dart',
+];
+
+/// Backend-only persistence files in the Drift package, under its pre-rename
+/// name for the same reason as [_backendWiringFiles].
+///
+/// The sync-cursor table and row exist only to track how far each resource
+/// has been pulled from the server, so they mean nothing in a local-only app.
+/// ObjectBox keeps its equivalents — see [driftPackageDir].
+const _backendOnlyDriftFiles = [
+  'packages/database_drift/lib/src/tables/sync_cursors_table.dart',
+  'packages/database_drift/lib/src/entities/sync_cursor_entity.dart',
 ];
 
 /// Disables the backend (network + sync) pillar in a freshly scaffolded
@@ -80,9 +98,70 @@ Future<void> disableBackend(String projectDir) async {
     if (file.existsSync()) file.deleteSync();
   }
 
+  for (final relative in _backendOnlyDriftFiles) {
+    final file = File(p.join(projectDir, p.joinAll(relative.split('/'))));
+    if (file.existsSync()) file.deleteSync();
+  }
+
   // Phase 4: delete the network and sync package directories.
   for (final packageName in const ['network', 'sync_connectivity_plus']) {
     final dir = Directory(p.join(projectDir, 'packages', packageName));
     if (dir.existsSync()) dir.deleteSync(recursive: true);
+  }
+}
+
+/// Removes every `fst:revsync:start` … `fst:revsync:end` block from [content].
+String removeRevSyncRegions(String content) {
+  const startNeedle = 'fst:revsync:start';
+  const endNeedle = 'fst:revsync:end';
+  final kept = <String>[];
+  var skipping = false;
+  for (final line in content.split('\n')) {
+    if (skipping) {
+      if (line.contains(endNeedle)) skipping = false;
+      continue;
+    }
+    if (line.contains(startNeedle)) {
+      skipping = true;
+      continue;
+    }
+    kept.add(line);
+  }
+  if (skipping) {
+    throw FormatException(
+      'Unclosed rev_sync marker block (missing "$endNeedle"). '
+      'Refusing to rewrite to avoid corrupting the file.',
+    );
+  }
+  return kept.join('\n');
+}
+
+/// Drops the vendored `rev_sync` engine from [projectDir].
+///
+/// Separate from [disableBackend] because it can only run once the database
+/// engine is settled: ObjectBox entities implement `Syncable`, so on that path
+/// `rev_sync` has to stay even in a local-only app. Call this only for
+/// `--database drift` with the backend off, and only after `swapDatabase` —
+/// the Drift package answers to `packages/database` by then.
+///
+/// Idempotent.
+Future<void> removeRevSync(String projectDir) async {
+  for (final relative in const [
+    'pubspec.yaml',
+    'packages/database/pubspec.yaml',
+  ]) {
+    final file = File(p.join(projectDir, p.joinAll(relative.split('/'))));
+    if (!file.existsSync()) continue;
+    final original = file.readAsStringSync();
+    final rewritten = removeRevSyncRegions(original);
+    if (rewritten == original) continue;
+    file.writeAsStringSync('${rewritten.trimRight()}\n');
+  }
+
+  final revSync = Directory(p.join(projectDir, 'published', 'rev_sync'));
+  if (revSync.existsSync()) revSync.deleteSync(recursive: true);
+  final published = Directory(p.join(projectDir, 'published'));
+  if (published.existsSync() && published.listSync().isEmpty) {
+    published.deleteSync();
   }
 }

@@ -42,6 +42,29 @@ String _expandDbRegions(String content, String markerName) {
       .join('\n');
 }
 
+/// The project's Drift database package directory, or `null` when the project
+/// is on ObjectBox.
+///
+/// Identified by `lib/src/app_database.dart`, which only the Drift package
+/// has. The directory name is not a reliable signal: `--database drift`
+/// renames `database_drift` to `database`, so both names can mean either
+/// engine depending on how far the rewrite has got.
+///
+/// Callers that delete persistence files must go through this. The ObjectBox
+/// binding (`objectbox.g.dart`, committed because it holds stable schema
+/// UIDs) is deliberately not regenerated at scaffold time, so removing an
+/// entity out from under it would leave a project that cannot compile. The
+/// Drift binding has no such constraint — `tool/codegen.sh` rebuilds it.
+String? driftPackageDir(String projectDir) {
+  for (final name in const ['database', 'database_drift']) {
+    final dir = p.join(projectDir, 'packages', name);
+    if (File(p.join(dir, 'lib', 'src', 'app_database.dart')).existsSync()) {
+      return dir;
+    }
+  }
+  return null;
+}
+
 /// Files that carry both `fst:db:objectbox` and `fst:db:drift` marker regions.
 ///
 /// Feature data-source files are NOT here — in the OB path they stay as-is
@@ -187,7 +210,7 @@ import 'package:rev_sync/rev_sync.dart';
 
 /// Drift-backed [SyncCursorStore]. One row per sync resource in
 /// [AppDatabase.syncCursors]; upserted atomically via
-/// [insertOnConflictUpdate].
+/// `insertOnConflictUpdate`.
 class DriftSyncCursorStore implements SyncCursorStore {
   DriftSyncCursorStore(this._db);
 
@@ -235,6 +258,11 @@ void _writeDriftModule(String projectDir, {required bool useBackend}) {
       'drift_module.dart',
     ),
   ).writeAsStringSync('''
+// The app shell binds each feature's concrete local data source, which lives
+// under that package's lib/src by design — a feature's barrel exports its
+// public surface, not its persistence internals.
+// ignore_for_file: implementation_imports
+
 import 'package:database/database.dart';
 import 'package:injectable/injectable.dart';
 $syncImports// fst:feature:bookmarks:start

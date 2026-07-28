@@ -462,6 +462,22 @@ class CreateCommand extends Command<int> {
       }
     }
 
+    // ── 5b5. Drop rev_sync ───────────────────────────────────────────────────
+    // After the database swap, because only Drift can shed it: ObjectBox
+    // entities implement `Syncable`, and their committed binding is not
+    // regenerated at scaffold time, so on that path rev_sync has to stay.
+    if (!useBackend && database == 'drift') {
+      final revSyncProgress = _logger.progress('Removing the sync engine');
+      try {
+        await removeRevSync(outputDir);
+        revSyncProgress.complete('Sync engine removed');
+      } catch (e) {
+        revSyncProgress.fail('Removing the sync engine failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
     // ── 5c. Exclude features + set API URL ───────────────────────────────────
     // Before setup so codegen (router.g.dart, DI) sees the trimmed tree.
     if (excludedFeatures.isNotEmpty) {

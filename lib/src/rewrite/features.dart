@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'database.dart';
+
 /// The demo content features `fst create` can exclude at scaffold time.
 ///
 /// `auth`, `home`, `profile`, and `splash` are core (session, redirects, shell,
@@ -72,7 +74,37 @@ const _wiringFiles = [
   'test/architecture/di_module_ordering_test.dart',
   'test/architecture/package_layering_test.dart',
   'test/architecture/feature_boundaries_test.dart',
+  // The Drift package, under both its names: `swapDatabase` renames
+  // `database_drift` to `database`, and whether that has run yet depends on
+  // the flag combination. Absent paths are skipped, so listing both is safe.
+  'packages/database/lib/database.dart',
+  'packages/database/lib/src/app_database.dart',
+  'packages/database_drift/lib/database.dart',
+  'packages/database_drift/lib/src/app_database.dart',
 ];
+
+/// Per-feature persistence files, deleted along with the feature.
+///
+/// A table the app no longer has a feature for is dead weight in the schema:
+/// it still gets created on every install and still shows up in migrations.
+/// Applied only to the Drift package — see [driftPackageDir] for why
+/// ObjectBox keeps its entities.
+const _featureDatabaseFiles = {
+  'bookmarks': [
+    'lib/src/tables/bookmarks_table.dart',
+    'lib/src/entities/bookmark_entity.dart',
+  ],
+  'collections': [
+    'lib/src/tables/collections_table.dart',
+    'lib/src/entities/collection_entity.dart',
+  ],
+  'notifications': [
+    'lib/src/tables/notifications_table.dart',
+    'lib/src/tables/activities_table.dart',
+    'lib/src/entities/notification_entity.dart',
+    'lib/src/entities/activity_entity.dart',
+  ],
+};
 
 /// Excises every [features] feature from [projectDir]: strips their
 /// `fst:feature:*` regions from the wiring files and deletes their packages.
@@ -86,6 +118,9 @@ Future<void> excludeFeatures(String projectDir, Set<String> features) async {
   // strip the now-orphaned module infrastructure (marked `fst:feature:_infra`)
   // so the trimmed project has no unused imports/declarations.
   final stripInfra = removableFeatures.difference(features).isEmpty;
+
+  // Null on the ObjectBox path, where persistence files must survive.
+  final driftDir = driftPackageDir(projectDir);
 
   // Phase 1: compute every rewrite in memory. `removeFeatureRegions` throws on a
   // malformed (unclosed) marker block, so a bad file aborts here — before any
@@ -115,5 +150,11 @@ Future<void> excludeFeatures(String projectDir, Set<String> features) async {
       p.join(projectDir, 'packages', 'features', feature),
     );
     if (dir.existsSync()) dir.deleteSync(recursive: true);
+
+    if (driftDir == null) continue;
+    for (final relative in _featureDatabaseFiles[feature] ?? const []) {
+      final file = File(p.join(driftDir, p.joinAll(relative.split('/'))));
+      if (file.existsSync()) file.deleteSync();
+    }
   }
 }

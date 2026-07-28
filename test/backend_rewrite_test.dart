@@ -164,6 +164,27 @@ void main() {
         'packages/sync_connectivity_plus/pubspec.yaml',
         'name: sync_connectivity_plus\n',
       );
+
+      // Drift package: sync-cursor files go, feature tables stay.
+      write(
+        'packages/database_drift/lib/src/app_database.dart',
+        '// fst:backend:start\n'
+            "import 'tables/sync_cursors_table.dart';\n"
+            '// fst:backend:end\n'
+            "import 'tables/bookmarks_table.dart';\n",
+      );
+      write(
+        'packages/database_drift/lib/src/tables/sync_cursors_table.dart',
+        'class SyncCursors {}\n',
+      );
+      write(
+        'packages/database_drift/lib/src/entities/sync_cursor_entity.dart',
+        'class SyncCursorEntity {}\n',
+      );
+      write(
+        'packages/database_drift/lib/src/tables/bookmarks_table.dart',
+        'class Bookmarks {}\n',
+      );
     });
 
     tearDown(() => dir.deleteSync(recursive: true));
@@ -242,6 +263,107 @@ void main() {
 
       // File must be untouched (phase 1 aborted before any write).
       expect(read('pubspec.yaml'), equals(originalPubspec));
+    });
+
+    test('drops the sync-cursor table and row, keeping feature tables',
+        () async {
+      await disableBackend(dir.path);
+
+      expect(
+        exists(
+            'packages/database_drift/lib/src/tables/sync_cursors_table.dart'),
+        isFalse,
+      );
+      expect(
+        exists(
+          'packages/database_drift/lib/src/entities/sync_cursor_entity.dart',
+        ),
+        isFalse,
+      );
+      expect(
+        exists('packages/database_drift/lib/src/tables/bookmarks_table.dart'),
+        isTrue,
+      );
+
+      final appDatabase =
+          read('packages/database_drift/lib/src/app_database.dart');
+      expect(appDatabase, isNot(contains('sync_cursors_table')));
+      expect(appDatabase, contains('bookmarks_table'));
+    });
+  });
+
+  group('removeRevSync', () {
+    late Directory dir;
+
+    void write(String relative, String content) {
+      File(p.join(dir.path, p.joinAll(relative.split('/'))))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(content);
+    }
+
+    String read(String relative) =>
+        File(p.join(dir.path, p.joinAll(relative.split('/'))))
+            .readAsStringSync();
+
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('fst_revsync_test_');
+      write(
+        'pubspec.yaml',
+        'dependencies:\n'
+            '  # fst:revsync:start\n'
+            '  rev_sync:\n'
+            '    path: published/rev_sync\n'
+            '  # fst:revsync:end\n'
+            '  theme: ^0.1.0\n',
+      );
+      write(
+        'packages/database/pubspec.yaml',
+        'dependencies:\n'
+            '  # fst:revsync:start\n'
+            '  rev_sync:\n'
+            '    path: ../../published/rev_sync\n'
+            '  # fst:revsync:end\n'
+            '  drift: ^2.22.0\n',
+      );
+      write('published/rev_sync/pubspec.yaml', 'name: rev_sync\n');
+    });
+
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('strips the dependency from both pubspecs', () async {
+      await removeRevSync(dir.path);
+
+      expect(read('pubspec.yaml'), isNot(contains('rev_sync')));
+      expect(read('pubspec.yaml'), contains('theme'));
+      expect(
+          read('packages/database/pubspec.yaml'), isNot(contains('rev_sync')));
+      expect(read('packages/database/pubspec.yaml'), contains('drift'));
+    });
+
+    test('deletes the vendored package and its empty parent', () async {
+      await removeRevSync(dir.path);
+
+      expect(
+        Directory(p.join(dir.path, 'published', 'rev_sync')).existsSync(),
+        isFalse,
+      );
+      expect(Directory(p.join(dir.path, 'published')).existsSync(), isFalse);
+    });
+
+    test('keeps a published/ directory that holds anything else', () async {
+      write('published/cli/pubspec.yaml', 'name: cli\n');
+
+      await removeRevSync(dir.path);
+
+      expect(Directory(p.join(dir.path, 'published')).existsSync(), isTrue);
+    });
+
+    test('is idempotent', () async {
+      await removeRevSync(dir.path);
+      final after = read('pubspec.yaml');
+      await removeRevSync(dir.path);
+
+      expect(read('pubspec.yaml'), equals(after));
     });
   });
 }
