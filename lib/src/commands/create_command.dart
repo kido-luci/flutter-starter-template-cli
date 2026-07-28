@@ -389,8 +389,18 @@ class CreateCommand extends Command<int> {
       }
     } else {
       // Firebase stays, but its markers are scaffolding for the strip above
-      // and would otherwise ship as noise in the generated project.
-      await keepFirebase(outputDir);
+      // and would otherwise ship as noise in the generated project. Same
+      // progress/catch shape as the branch above: this writes to disk too, and
+      // an IO failure should report and exit rather than escape run().
+      final markerProgress = _logger.progress('Clearing Firebase markers');
+      try {
+        await keepFirebase(outputDir);
+        markerProgress.complete('Firebase markers cleared');
+      } catch (e) {
+        markerProgress.fail('Clearing Firebase markers failed');
+        _logger.err('$e');
+        return 1;
+      }
     }
 
     // ── 5b2. Disable auth ────────────────────────────────────────────────────
