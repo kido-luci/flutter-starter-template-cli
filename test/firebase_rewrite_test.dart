@@ -345,6 +345,59 @@ void _iosBuildInputTests() {
 }
 
 void _keepFirebaseTests() {
+  group('keepFirebase', () {
+    late Directory dir;
+
+    String ciPath() => p.join(dir.path, '.github', 'workflows', 'ci.yml');
+
+    setUp(
+      () => dir = Directory.systemTemp.createTempSync('fst_keep_firebase_'),
+    );
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('clears the markers and keeps every step', () async {
+      File(ciPath())
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(
+          'steps:\n'
+          '      # fst:firebase:start\n'
+          '      - name: Generate placeholder google-services.json\n'
+          '      # fst:firebase:end\n'
+          '      - name: Build\n',
+        );
+
+      await keepFirebase(dir.path);
+
+      final ci = File(ciPath()).readAsStringSync();
+      expect(ci, isNot(contains('fst:firebase')));
+      expect(ci, contains('Generate placeholder google-services.json'));
+      expect(ci, contains('- name: Build'));
+    });
+
+    test('is a no-op when there is no workflow', () async {
+      // A scaffold can legitimately have no CI file; that is not an error.
+      await expectLater(keepFirebase(dir.path), completes);
+      expect(File(ciPath()).existsSync(), isFalse);
+    });
+
+    test('is idempotent', () async {
+      File(ciPath())
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(
+          'steps:\n'
+          '      # fst:firebase:start\n'
+          '      - name: Build\n'
+          '      # fst:firebase:end\n',
+        );
+
+      await keepFirebase(dir.path);
+      final once = File(ciPath()).readAsStringSync();
+      await keepFirebase(dir.path);
+
+      expect(File(ciPath()).readAsStringSync(), equals(once));
+    });
+  });
+
   group('expandFirebaseRegions', () {
     test('keeps the content and drops only the markers', () {
       const src = 'steps:\n'
