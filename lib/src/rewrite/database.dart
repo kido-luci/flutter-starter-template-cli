@@ -238,8 +238,8 @@ import 'package:feature_notifications/src/data/local/notifications_local_data_so
 // fst:feature:notifications:end
 
 /// Drift DI module: provides [AppDatabase] and the feature data sources backed
-/// by Drift. Auto-discovered by injectable_generator via the [@module]
-/// annotation — no explicit entry in [externalPackageModulesBefore] needed.
+/// by Drift. Auto-discovered by injectable_generator via the `@module`
+/// annotation — no explicit entry in `externalPackageModulesBefore` needed.
 @module
 abstract class DriftModule {
   @lazySingleton

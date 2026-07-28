@@ -4,6 +4,7 @@ export 'src/rewrite/auth.dart';
 export 'src/rewrite/auth_provider.dart';
 export 'src/rewrite/backend.dart';
 export 'src/rewrite/branding.dart';
+export 'src/rewrite/e2e.dart';
 export 'src/rewrite/env.dart';
 export 'src/rewrite/feature_template.dart' show featureFiles, FeatureSource;
 export 'src/rewrite/feature_wiring.dart';

@@ -116,6 +116,36 @@ void main() {
     });
   });
 
+  group('removeImportLine', () {
+    test('removes the matching bare import', () {
+      const src = "import 'package:firebase_analytics/firebase_analytics.dart';"
+          '\n'
+          "import 'package:injectable/injectable.dart';\n";
+      expect(
+        removeImportLine(src, 'package:firebase_analytics/firebase_analytics.dart'),
+        equals("import 'package:injectable/injectable.dart';\n"),
+      );
+    });
+
+    test('leaves a re-export or aliased import alone', () {
+      const src =
+          "export 'package:firebase_analytics/firebase_analytics.dart';\n"
+          "import 'package:firebase_analytics/firebase_analytics.dart' as fa;\n";
+      expect(
+        removeImportLine(src, 'package:firebase_analytics/firebase_analytics.dart'),
+        equals(src),
+      );
+    });
+
+    test('is a no-op when the import is absent, and is idempotent', () {
+      const src = "import 'package:injectable/injectable.dart';\n";
+      final once = removeImportLine(src, 'package:firebase_analytics/x.dart');
+      expect(once, equals(src));
+      expect(removeImportLine(once, 'package:firebase_analytics/x.dart'),
+          equals(src));
+    });
+  });
+
   group('removeFirebaseGradlePlugins', () {
     const gradle = 'plugins {\n'
         '    id("com.android.application")\n'
@@ -171,7 +201,10 @@ void main() {
       write('lib/app/firebase.dart', 'const bool kFirebaseEnabled = true;\n');
       write(
         'packages/analytics/lib/src/analytics_module.dart',
-        '  /// Rewritten at the `// fst:analytics-impl` marker.\n'
+        "import 'package:firebase_analytics/firebase_analytics.dart';\n"
+            "import 'package:injectable/injectable.dart';\n"
+            '\n'
+            '  /// Rewritten at the `// fst:analytics-impl` marker.\n'
             '  AnalyticsService provideAnalyticsService() =>\n'
             '      FirebaseAnalyticsService(FirebaseAnalytics.instance); '
             '// fst:analytics-impl\n',
@@ -204,8 +237,14 @@ void main() {
 
       expect(
           read('lib/app/firebase.dart'), contains('kFirebaseEnabled = false'));
-      expect(read('packages/analytics/lib/src/analytics_module.dart'),
+      final analyticsModule =
+          read('packages/analytics/lib/src/analytics_module.dart');
+      expect(analyticsModule,
           contains('const NoOpAnalyticsService(); // fst:analytics-impl'));
+      // The swapped-in no-op leaves nothing referencing FirebaseAnalytics, so
+      // the import must go too or the scaffold trips `unused_import`.
+      expect(analyticsModule, isNot(contains('firebase_analytics')));
+      expect(analyticsModule, contains('injectable'));
       expect(read('packages/app_platform/lib/src/crash/crash_module.dart'),
           contains('const NoOpCrashReporter(); // fst:crash-impl'));
 

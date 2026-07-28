@@ -45,6 +45,8 @@ const _authWiringFiles = [
   'packages/features/profile/lib/src/presentation/screens/profile_screen.dart',
   'packages/features/profile/lib/src/presentation/widgets/profile_widgets.dart',
   'packages/features/profile/lib/src/presentation/widgets/profile_about.dart',
+  'packages/features/profile/test/presentation/widgets/profile_screen_test.dart',
+  'packages/features/splash/test/presentation/screens/splash_screen_test.dart',
   'test/widget_test.dart',
   'test/test_utils/mocks.dart',
   'test/app/router_redirect_test.dart',
@@ -52,16 +54,22 @@ const _authWiringFiles = [
   'test/architecture/feature_boundaries_test.dart',
 ];
 
-/// Part-file widgets that are whole-file auth-only (their `part` directives
-/// are in `profile_widgets.dart` and are removed by the region stripper).
-const _authOnlyPartFiles = [
+/// Files that are wholly auth-only and are deleted outright.
+///
+/// The two profile part-widgets have their `part` directives in
+/// `profile_widgets.dart`, which the region stripper removes.
+/// `delete_account_flow_test.dart` covers nothing but auth's delete-account
+/// capability, so without the pillar it has no subject left to test.
+const _authOnlyFiles = [
   'packages/features/profile/lib/src/presentation/widgets/profile_header.dart',
   'packages/features/profile/lib/src/presentation/widgets/profile_account.dart',
+  'packages/features/profile/test/presentation/widgets/'
+      'delete_account_flow_test.dart',
 ];
 
 /// Disables auth in a freshly scaffolded [projectDir]: strips every
-/// `fst:auth` region from the wiring files, deletes the auth-only part
-/// widgets, and removes the `packages/features/auth` package directory.
+/// `fst:auth` region from the wiring files, deletes the auth-only files, and
+/// removes the `packages/features/auth` package directory.
 ///
 /// Phase 1 computes every rewrite in memory (throwing on a malformed marker)
 /// before any file is written, so a bad marker aborts cleanly.
@@ -84,8 +92,8 @@ Future<void> disableAuth(String projectDir) async {
   // Phase 2: all rewrites computed cleanly — commit them.
   pending.forEach((file, content) => file.writeAsStringSync(content));
 
-  // Phase 3: delete auth-only part files (their part directives are now gone).
-  for (final relative in _authOnlyPartFiles) {
+  // Phase 3: delete auth-only files (part directives and subjects are gone).
+  for (final relative in _authOnlyFiles) {
     final file = File(p.join(projectDir, p.joinAll(relative.split('/'))));
     if (file.existsSync()) file.deleteSync();
   }

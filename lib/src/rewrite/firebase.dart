@@ -61,6 +61,18 @@ String replaceMarkedExpression(
   return lines.join('\n');
 }
 
+/// Removes the `import '<uri>';` line from [content], if present.
+///
+/// Runs after [replaceMarkedExpression] swaps a Firebase binding for its
+/// no-op: the binding was the import's only user, so leaving it behind trips
+/// `unused_import` in the scaffolded project. Idempotent, and matches only a
+/// bare import line so a re-export or aliased import is left alone.
+String removeImportLine(String content, String uri) {
+  final needle = "import '$uri';";
+  final lines = content.split('\n')..removeWhere((l) => l.trim() == needle);
+  return lines.join('\n');
+}
+
 /// Removes the three Firebase Gradle plugin lines (`google-services`,
 /// `firebase-perf`, `crashlytics`) from an Android `build.gradle.kts`.
 ///
@@ -94,10 +106,17 @@ Future<void> disableFirebase(String projectDir) async {
   _rewriteFile(
     p.join(projectDir, 'packages', 'analytics', 'lib', 'src',
         'analytics_module.dart'),
-    (content) => replaceMarkedExpression(
-      content,
-      marker: 'fst:analytics-impl',
-      replacement: 'const NoOpAnalyticsService();',
+    (content) => removeImportLine(
+      replaceMarkedExpression(
+        content,
+        marker: 'fst:analytics-impl',
+        replacement: 'const NoOpAnalyticsService();',
+      ),
+      // The swapped-in no-op is the module's only binding, so nothing in this
+      // file references FirebaseAnalytics any more. `crash_module.dart` needs
+      // no equivalent: it reaches FirebaseCrashReporter through a relative
+      // import that survives.
+      'package:firebase_analytics/firebase_analytics.dart',
     ),
   );
   _rewriteFile(
