@@ -122,7 +122,8 @@ void main() {
           '\n'
           "import 'package:injectable/injectable.dart';\n";
       expect(
-        removeImportLine(src, 'package:firebase_analytics/firebase_analytics.dart'),
+        removeImportLine(
+            src, 'package:firebase_analytics/firebase_analytics.dart'),
         equals("import 'package:injectable/injectable.dart';\n"),
       );
     });
@@ -132,7 +133,8 @@ void main() {
           "export 'package:firebase_analytics/firebase_analytics.dart';\n"
           "import 'package:firebase_analytics/firebase_analytics.dart' as fa;\n";
       expect(
-        removeImportLine(src, 'package:firebase_analytics/firebase_analytics.dart'),
+        removeImportLine(
+            src, 'package:firebase_analytics/firebase_analytics.dart'),
         equals(src),
       );
     });

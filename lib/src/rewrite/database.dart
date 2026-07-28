@@ -142,6 +142,16 @@ Future<void> _activateDrift(
     );
   }
 
+  // The package is now called `database`, so any self-reference by its old
+  // package URI (its own tests, for one) would no longer resolve.
+  for (final entity in Directory(newDbDir).listSync(recursive: true)) {
+    if (entity is! File || !entity.path.endsWith('.dart')) continue;
+    final original = entity.readAsStringSync();
+    final rewritten =
+        original.replaceAll('package:database_drift/', 'package:database/');
+    if (rewritten != original) entity.writeAsStringSync(rewritten);
+  }
+
   // Phase 4: delete objectbox-specific files from the root app.
   for (final relative in const [
     'lib/core/data/database/object_box_module.dart',
