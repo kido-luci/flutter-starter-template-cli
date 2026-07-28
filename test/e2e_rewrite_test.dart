@@ -62,14 +62,25 @@ void main() {
       expect(dirExists('test_driver'), isFalse);
     });
 
-    test('keeps a directory that still holds the user own tests', () async {
+    test('keeps directories that still hold the user own tests', () async {
+      // Covers each of the three directories, including the nested one: they
+      // are removed innermost-first and only when empty, so a file in
+      // `support/` must also keep its parent alive.
       write('integration_test/my_own_test.dart', '// mine\n');
+      write('integration_test/support/my_own_helper.dart', '// mine\n');
+      write('test_driver/my_own_driver.dart', '// mine\n');
 
       await pruneE2eSuite(dir.path);
 
       expect(dirExists('integration_test'), isTrue);
+      expect(dirExists('integration_test/support'), isTrue);
+      expect(dirExists('test_driver'), isTrue);
       expect(exists('integration_test/my_own_test.dart'), isTrue);
+      expect(exists('integration_test/support/my_own_helper.dart'), isTrue);
+      expect(exists('test_driver/my_own_driver.dart'), isTrue);
       expect(exists('integration_test/e2e_test.dart'), isFalse);
+      expect(exists('integration_test/support/e2e_app.dart'), isFalse);
+      expect(exists('test_driver/integration_test.dart'), isFalse);
     });
 
     test('is idempotent', () async {

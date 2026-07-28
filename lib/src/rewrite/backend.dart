@@ -144,8 +144,12 @@ String removeRevSyncRegions(String content) {
 /// `--database drift` with the backend off, and only after `swapDatabase` —
 /// the Drift package answers to `packages/database` by then.
 ///
+/// Computes every rewrite before committing any, like the other rewriters, so
+/// a malformed marker throws with the tree untouched rather than half-stripped.
+///
 /// Idempotent.
 Future<void> removeRevSync(String projectDir) async {
+  final pending = <File, String>{};
   for (final relative in const [
     'pubspec.yaml',
     'packages/database/pubspec.yaml',
@@ -155,8 +159,10 @@ Future<void> removeRevSync(String projectDir) async {
     final original = file.readAsStringSync();
     final rewritten = removeRevSyncRegions(original);
     if (rewritten == original) continue;
-    file.writeAsStringSync('${rewritten.trimRight()}\n');
+    pending[file] = '${rewritten.trimRight()}\n';
   }
+
+  pending.forEach((file, content) => file.writeAsStringSync(content));
 
   final revSync = Directory(p.join(projectDir, 'published', 'rev_sync'));
   if (revSync.existsSync()) revSync.deleteSync(recursive: true);
