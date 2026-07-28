@@ -387,6 +387,10 @@ class CreateCommand extends Command<int> {
         _logger.err('$e');
         return 1;
       }
+    } else {
+      // Firebase stays, but its markers are scaffolding for the strip above
+      // and would otherwise ship as noise in the generated project.
+      await keepFirebase(outputDir);
     }
 
     // ── 5b2. Disable auth ────────────────────────────────────────────────────

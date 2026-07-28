@@ -91,6 +91,58 @@ String removeFirebaseGradlePlugins(String content) {
   return lines.join('\n');
 }
 
+/// Removes every `fst:firebase:start` … `fst:firebase:end` block (inclusive).
+///
+/// Comment-style agnostic. Throws [FormatException] on an unclosed block.
+String removeFirebaseRegions(String content) {
+  const startNeedle = 'fst:firebase:start';
+  const endNeedle = 'fst:firebase:end';
+  final kept = <String>[];
+  var skipping = false;
+  for (final line in content.split('\n')) {
+    if (skipping) {
+      if (line.contains(endNeedle)) skipping = false;
+      continue;
+    }
+    if (line.contains(startNeedle)) {
+      skipping = true;
+      continue;
+    }
+    kept.add(line);
+  }
+  if (skipping) {
+    throw FormatException(
+      'Unclosed firebase marker block (missing "$endNeedle"). '
+      'Refusing to rewrite to avoid corrupting the file.',
+    );
+  }
+  return kept.join('\n');
+}
+
+/// Removes only the `fst:firebase` marker comments, keeping what they wrap.
+///
+/// The counterpart to [removeFirebaseRegions], for the scaffold that keeps
+/// Firebase: the content is correct, the markers are scaffolding and would
+/// otherwise ship as noise in the generated project.
+String expandFirebaseRegions(String content) =>
+    content.split('\n').where((l) => !l.contains('fst:firebase:')).join('\n');
+
+/// Drops the Xcode project's references to `GoogleService-Info.plist`.
+///
+/// The file itself is deleted with the rest of the Firebase credentials, but
+/// the project keeps listing it as a bundled resource — and Xcode treats a
+/// missing build input as a hard error, so an otherwise Firebase-free scaffold
+/// cannot build for iOS at all:
+///
+///     Build input file cannot be found: '.../GoogleService-Info.plist'
+///
+/// Each reference (build file, file reference, group child, resources phase)
+/// is its own line, so dropping the lines that name it is exact.
+String removeIosFirebaseResource(String pbxproj) => pbxproj
+    .split('\n')
+    .where((line) => !line.contains('GoogleService-Info.plist'))
+    .join('\n');
+
 /// Disables Firebase in a freshly scaffolded [projectDir]: flips
 /// `kFirebaseEnabled`, swaps the analytics/crash bindings to their no-ops,
 /// removes the Firebase Android Gradle plugins, and deletes the native
@@ -136,7 +188,27 @@ Future<void> disableFirebase(String projectDir) async {
     removeFirebaseGradlePlugins,
   );
 
-  // 4. Delete native credential files so no template credentials ship and the
+  // 4. Drop the Xcode project's reference to the plist deleted in step 5.
+  //    Xcode fails the build on a missing input, so leaving it would make an
+  //    otherwise Firebase-free scaffold unbuildable for iOS.
+  _rewriteFile(
+    p.join(projectDir, 'ios', 'Runner.xcodeproj', 'project.pbxproj'),
+    removeIosFirebaseResource,
+  );
+
+  // 5. Drop the CI steps that fabricate placeholder credentials. They exist
+  //    only because the native projects reference files this function has now
+  //    stopped referencing.
+  final ci = File(
+    p.join(projectDir, '.github', 'workflows', 'ci.yml'),
+  );
+  if (ci.existsSync()) {
+    ci.writeAsStringSync(
+      '${removeFirebaseRegions(ci.readAsStringSync()).trimRight()}\n',
+    );
+  }
+
+  // 6. Delete native credential files so no template credentials ship and the
   //    native SDKs don't auto-initialise the template project.
   for (final relative in const [
     'android/app/google-services.json',
@@ -154,4 +226,14 @@ void _rewriteFile(String path, String Function(String) transform) {
     throw FirebaseRewriteException('Expected file not found: $path');
   }
   file.writeAsStringSync(transform(file.readAsStringSync()));
+}
+
+/// Keeps Firebase, and clears the `fst:firebase` markers that only exist so
+/// [disableFirebase] can find its regions.
+Future<void> keepFirebase(String projectDir) async {
+  final ci = File(p.join(projectDir, '.github', 'workflows', 'ci.yml'));
+  if (!ci.existsSync()) return;
+  ci.writeAsStringSync(
+    '${expandFirebaseRegions(ci.readAsStringSync()).trimRight()}\n',
+  );
 }
