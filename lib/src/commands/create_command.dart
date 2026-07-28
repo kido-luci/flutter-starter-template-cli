@@ -13,6 +13,7 @@ import '../rewrite/backend.dart';
 import '../rewrite/branding.dart';
 import '../rewrite/clean_slate.dart';
 import '../rewrite/database.dart';
+import '../rewrite/e2e.dart';
 import '../rewrite/env.dart';
 import '../rewrite/features.dart';
 import '../rewrite/firebase.dart';
@@ -461,6 +462,22 @@ class CreateCommand extends Command<int> {
       }
     }
 
+    // ── 5b5. Drop rev_sync ───────────────────────────────────────────────────
+    // After the database swap, because only Drift can shed it: ObjectBox
+    // entities implement `Syncable`, and their committed binding is not
+    // regenerated at scaffold time, so on that path rev_sync has to stay.
+    if (!useBackend && database == 'drift') {
+      final revSyncProgress = _logger.progress('Removing the sync engine');
+      try {
+        await removeRevSync(outputDir);
+        revSyncProgress.complete('Sync engine removed');
+      } catch (e) {
+        revSyncProgress.fail('Removing the sync engine failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
     // ── 5c. Exclude features + set API URL ───────────────────────────────────
     // Before setup so codegen (router.g.dart, DI) sees the trimmed tree.
     if (excludedFeatures.isNotEmpty) {
@@ -472,6 +489,23 @@ class CreateCommand extends Command<int> {
         featureProgress.complete('Features removed');
       } catch (e) {
         featureProgress.fail('Removing features failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
+    // ── 5c2. Prune the demo end-to-end suite ─────────────────────────────────
+    // The suite drives the bundled demo (register → bookmark → collection →
+    // notifications → sign out) against the real backend, so it only holds
+    // together when every one of those pillars survives. Dropping any of them
+    // would leave a suite that no longer compiles.
+    if (!useBackend || !useAuth || excludedFeatures.isNotEmpty) {
+      final e2eProgress = _logger.progress('Removing the demo e2e suite');
+      try {
+        await pruneE2eSuite(outputDir);
+        e2eProgress.complete('Demo e2e suite removed');
+      } catch (e) {
+        e2eProgress.fail('Removing the demo e2e suite failed');
         _logger.err('$e');
         return 1;
       }

@@ -42,6 +42,29 @@ String _expandDbRegions(String content, String markerName) {
       .join('\n');
 }
 
+/// The project's Drift database package directory, or `null` when the project
+/// is on ObjectBox.
+///
+/// Identified by `lib/src/app_database.dart`, which only the Drift package
+/// has. The directory name is not a reliable signal: `--database drift`
+/// renames `database_drift` to `database`, so both names can mean either
+/// engine depending on how far the rewrite has got.
+///
+/// Callers that delete persistence files must go through this. The ObjectBox
+/// binding (`objectbox.g.dart`, committed because it holds stable schema
+/// UIDs) is deliberately not regenerated at scaffold time, so removing an
+/// entity out from under it would leave a project that cannot compile. The
+/// Drift binding has no such constraint — `tool/codegen.sh` rebuilds it.
+String? driftPackageDir(String projectDir) {
+  for (final name in const ['database', 'database_drift']) {
+    final dir = p.join(projectDir, 'packages', name);
+    if (File(p.join(dir, 'lib', 'src', 'app_database.dart')).existsSync()) {
+      return dir;
+    }
+  }
+  return null;
+}
+
 /// Files that carry both `fst:db:objectbox` and `fst:db:drift` marker regions.
 ///
 /// Feature data-source files are NOT here — in the OB path they stay as-is
@@ -142,6 +165,16 @@ Future<void> _activateDrift(
     );
   }
 
+  // The package is now called `database`, so any self-reference by its old
+  // package URI (its own tests, for one) would no longer resolve.
+  for (final entity in Directory(newDbDir).listSync(recursive: true)) {
+    if (entity is! File || !entity.path.endsWith('.dart')) continue;
+    final original = entity.readAsStringSync();
+    final rewritten =
+        original.replaceAll('package:database_drift/', 'package:database/');
+    if (rewritten != original) entity.writeAsStringSync(rewritten);
+  }
+
   // Phase 4: delete objectbox-specific files from the root app.
   for (final relative in const [
     'lib/core/data/database/object_box_module.dart',
@@ -177,7 +210,7 @@ import 'package:rev_sync/rev_sync.dart';
 
 /// Drift-backed [SyncCursorStore]. One row per sync resource in
 /// [AppDatabase.syncCursors]; upserted atomically via
-/// [insertOnConflictUpdate].
+/// `insertOnConflictUpdate`.
 class DriftSyncCursorStore implements SyncCursorStore {
   DriftSyncCursorStore(this._db);
 
@@ -228,18 +261,30 @@ void _writeDriftModule(String projectDir, {required bool useBackend}) {
 import 'package:database/database.dart';
 import 'package:injectable/injectable.dart';
 $syncImports// fst:feature:bookmarks:start
+// The app shell binds each feature's concrete local data source, and that
+// lives under the package's lib/src by design: a barrel exports the feature's
+// public surface, not its persistence internals.
+// ignore: implementation_imports
 import 'package:feature_bookmarks/src/data/local/bookmarks_local_data_source.dart';
 // fst:feature:bookmarks:end
 // fst:feature:collections:start
+// The app shell binds each feature's concrete local data source, and that
+// lives under the package's lib/src by design: a barrel exports the feature's
+// public surface, not its persistence internals.
+// ignore: implementation_imports
 import 'package:feature_collections/src/data/local/collections_local_data_source.dart';
 // fst:feature:collections:end
 // fst:feature:notifications:start
+// The app shell binds each feature's concrete local data source, and that
+// lives under the package's lib/src by design: a barrel exports the feature's
+// public surface, not its persistence internals.
+// ignore: implementation_imports
 import 'package:feature_notifications/src/data/local/notifications_local_data_source.dart';
 // fst:feature:notifications:end
 
 /// Drift DI module: provides [AppDatabase] and the feature data sources backed
-/// by Drift. Auto-discovered by injectable_generator via the [@module]
-/// annotation — no explicit entry in [externalPackageModulesBefore] needed.
+/// by Drift. Auto-discovered by injectable_generator via the `@module`
+/// annotation — no explicit entry in `externalPackageModulesBefore` needed.
 @module
 abstract class DriftModule {
   @lazySingleton

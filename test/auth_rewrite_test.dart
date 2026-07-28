@@ -241,6 +241,24 @@ void main() {
         "part of 'profile_widgets.dart';\n",
       );
 
+      // Whole-file auth-only test (to be deleted): it covers nothing but
+      // auth's delete-account capability.
+      write(
+        'packages/features/profile/test/presentation/widgets/'
+            'delete_account_flow_test.dart',
+        "import 'package:feature_auth/feature_auth.dart';\n",
+      );
+
+      // A profile test that survives with its auth regions stripped.
+      write(
+        'packages/features/profile/test/presentation/widgets/'
+            'profile_screen_test.dart',
+        '// fst:auth:start\n'
+            "import 'package:feature_auth/feature_auth.dart';\n"
+            '// fst:auth:end\n'
+            "import 'package:theme/theme.dart';\n",
+      );
+
       // auth feature package directory.
       write('packages/features/auth/pubspec.yaml', 'name: feature_auth\n');
     });
@@ -282,6 +300,29 @@ void main() {
         ),
         isFalse,
       );
+    });
+
+    test('deletes the auth-only profile test', () async {
+      await disableAuth(dir.path);
+
+      expect(
+        exists(
+          'packages/features/profile/test/presentation/widgets/'
+          'delete_account_flow_test.dart',
+        ),
+        isFalse,
+      );
+    });
+
+    test('strips auth regions from the surviving profile test', () async {
+      await disableAuth(dir.path);
+
+      final profileTest = read(
+        'packages/features/profile/test/presentation/widgets/'
+        'profile_screen_test.dart',
+      );
+      expect(profileTest, isNot(contains('feature_auth')));
+      expect(profileTest, contains('theme'));
     });
 
     test('deletes the packages/features/auth directory', () async {
