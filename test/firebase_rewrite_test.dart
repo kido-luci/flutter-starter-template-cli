@@ -229,6 +229,19 @@ void main() {
       write('android/app/google-services.json', '{}');
       write('ios/Runner/GoogleService-Info.plist', '<plist></plist>');
       write('firebase.json', '{}');
+      write(
+        'ios/Runner.xcodeproj/project.pbxproj',
+        '\t\tAAA /* GoogleService-Info.plist in Resources */ = {};\n'
+            '\t\tBBB /* Runner.app */ = {};\n',
+      );
+      write(
+        '.github/workflows/ci.yml',
+        'steps:\n'
+            '      # fst:firebase:start\n'
+            '      - name: Generate placeholder GoogleService-Info.plist\n'
+            '      # fst:firebase:end\n'
+            '      - name: Build\n',
+      );
     });
 
     tearDown(() => dir.deleteSync(recursive: true));
@@ -257,7 +270,92 @@ void main() {
 
       expect(exists('android/app/google-services.json'), isFalse);
       expect(exists('ios/Runner/GoogleService-Info.plist'), isFalse);
+
+      // Deleting the plist is not enough: Xcode fails the build on a missing
+      // input, so the project must stop referencing it too.
+      final pbxproj = read('ios/Runner.xcodeproj/project.pbxproj');
+      expect(pbxproj, isNot(contains('GoogleService-Info')));
+      expect(pbxproj, contains('Runner.app'));
+
+      // And the CI step that fabricated a placeholder for that reference goes
+      // with it.
+      final ci = read('.github/workflows/ci.yml');
+      expect(ci, isNot(contains('Generate placeholder')));
+      expect(ci, contains('- name: Build'));
       expect(exists('firebase.json'), isFalse);
+    });
+  });
+
+  _iosBuildInputTests();
+  _keepFirebaseTests();
+}
+
+void _iosBuildInputTests() {
+  group('removeIosFirebaseResource', () {
+    test('drops every line that names the plist', () {
+      const pbxproj = '''
+		AAA /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; };
+		BBB /* Runner.app */ = {isa = PBXFileReference; };
+		CCC /* GoogleService-Info.plist */ = {isa = PBXFileReference; };
+			children = (
+				CCC /* GoogleService-Info.plist */,
+				DDD /* Assets.xcassets */,
+			);
+			files = (
+				AAA /* GoogleService-Info.plist in Resources */,
+			);
+''';
+
+      final result = removeIosFirebaseResource(pbxproj);
+
+      expect(result, isNot(contains('GoogleService-Info')));
+      expect(result, contains('Runner.app'));
+      expect(result, contains('Assets.xcassets'));
+    });
+
+    test('leaves a project that never mentioned it untouched', () {
+      const pbxproj =
+          '\t\tBBB /* Runner.app */ = {isa = PBXFileReference; };\n';
+
+      expect(removeIosFirebaseResource(pbxproj), equals(pbxproj));
+    });
+  });
+
+  group('removeFirebaseRegions', () {
+    test('removes a block inclusive of its markers', () {
+      const src = 'steps:\n'
+          '      # fst:firebase:start\n'
+          '      - name: Generate placeholder\n'
+          '      # fst:firebase:end\n'
+          '      - name: Build\n';
+
+      expect(
+        removeFirebaseRegions(src),
+        equals('steps:\n      - name: Build\n'),
+      );
+    });
+
+    test('throws on an unclosed marker', () {
+      expect(
+        () => removeFirebaseRegions('a\n# fst:firebase:start\nb\n'),
+        throwsFormatException,
+      );
+    });
+  });
+}
+
+void _keepFirebaseTests() {
+  group('expandFirebaseRegions', () {
+    test('keeps the content and drops only the markers', () {
+      const src = 'steps:\n'
+          '      # fst:firebase:start\n'
+          '      - name: Generate placeholder\n'
+          '      # fst:firebase:end\n';
+
+      expect(
+        expandFirebaseRegions(src),
+        equals('steps:\n      - name: Generate placeholder\n'),
+      );
     });
   });
 }
