@@ -15,4 +15,5 @@ export 'src/project_config.dart';
 export 'src/rewrite/clean_slate.dart';
 export 'src/rewrite/local_template.dart';
 export 'src/rewrite/rewriter.dart';
+export 'src/rewrite/template_only.dart';
 export 'src/validators.dart';
