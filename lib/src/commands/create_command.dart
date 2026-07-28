@@ -20,6 +20,7 @@ import '../rewrite/firebase.dart';
 import '../rewrite/icon.dart';
 import '../rewrite/local_template.dart';
 import '../rewrite/rewriter.dart';
+import '../rewrite/template_only.dart';
 import '../validators.dart';
 
 const _templateRepo =
@@ -506,6 +507,25 @@ class CreateCommand extends Command<int> {
         e2eProgress.complete('Demo e2e suite removed');
       } catch (e) {
         e2eProgress.fail('Removing the demo e2e suite failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
+    // ── 5c3. Strip template-development scaffolding ──────────────────────────
+    // Unconditional: none of it depends on which pillars were kept. The
+    // submodule checkouts are the load-bearing case — the template vendors
+    // published/rev_sync and published/cli as submodules, a scaffold gets plain
+    // directories and no .gitmodules, so `git submodule update --init` exits 1
+    // and fails every job it appears in.
+    {
+      final templateProgress =
+          _logger.progress('Removing template-only CI scaffolding');
+      try {
+        await stripTemplateOnly(outputDir);
+        templateProgress.complete('Template-only CI scaffolding removed');
+      } catch (e) {
+        templateProgress.fail('Removing template-only CI scaffolding failed');
         _logger.err('$e');
         return 1;
       }
