@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:path/path.dart' as p;
 
@@ -17,7 +18,67 @@ const _skipDirs = {
 
 /// File names never worth copying: OS/editor junk that the source tree may carry
 /// (gitignored, so absent from a remote clone but present in a local checkout).
-const _skipFiles = {'.DS_Store'};
+const _skipFiles = {
+  '.DS_Store',
+  '.flutter-plugins',
+  '.flutter-plugins-dependencies',
+};
+
+const templateContractFileName = '.fst-template.json';
+const supportedTemplateContractVersion = 1;
+
+/// Validates the versioned local-template contract when present.
+///
+/// Templates predating the contract remain supported through a narrow legacy
+/// structural check. Once a template declares `.fst-template.json`, its schema
+/// version and required customization points are enforced strictly.
+void validateLocalTemplateCompatibility(String templateRoot) {
+  final root = Directory(templateRoot);
+  if (!root.existsSync()) {
+    throw ArgumentError('Template path does not exist: $templateRoot');
+  }
+  final requiredPaths = <String>[
+    'pubspec.yaml',
+    'lib/app/features.dart',
+    'lib/app/di/injection.dart',
+    'test/architecture/package_layering_test.dart',
+  ];
+  final manifest = File(p.join(templateRoot, templateContractFileName));
+  if (manifest.existsSync()) {
+    final decoded = jsonDecode(manifest.readAsStringSync());
+    if (decoded is! Map<String, Object?> ||
+        decoded['schemaVersion'] != supportedTemplateContractVersion ||
+        decoded['templateKind'] != 'application' ||
+        decoded['customizationPoints'] is! List) {
+      throw const FormatException(
+        'Incompatible .fst-template.json. fst supports application template '
+        'schemaVersion 1.',
+      );
+    }
+    final points = List<String>.from(decoded['customizationPoints']! as List);
+    const requiredPoints = {
+      'project-identifiers',
+      'workspace-packages',
+      'feature-registration',
+    };
+    final missing = requiredPoints.difference(points.toSet());
+    if (missing.isNotEmpty) {
+      throw FormatException(
+        'Template contract is missing customization points: '
+        '${missing.join(', ')}.',
+      );
+    }
+  }
+  final missingPaths = requiredPaths
+      .where((relative) => !File(p.join(templateRoot, relative)).existsSync())
+      .toList();
+  if (missingPaths.isNotEmpty) {
+    throw FormatException(
+      'Incompatible template; missing required paths: '
+      '${missingPaths.join(', ')}.',
+    );
+  }
+}
 
 /// Copies the template tree at [fromDir] into [toDir], skipping VCS and build
 /// caches ([_skipDirs]) and symlinks.
@@ -27,10 +88,8 @@ const _skipFiles = {'.DS_Store'};
 /// against an unpublished template). The caller still runs the normal clean-slate
 /// and rewrite steps over the copy, so dev-only submodules are stripped there.
 Future<void> copyLocalTemplate(String fromDir, String toDir) async {
+  validateLocalTemplateCompatibility(fromDir);
   final from = Directory(fromDir);
-  if (!from.existsSync()) {
-    throw ArgumentError('Template path does not exist: $fromDir');
-  }
   await _copyDir(from, Directory(toDir));
 }
 
@@ -43,7 +102,9 @@ Future<void> _copyDir(Directory from, Directory to) async {
       if (_skipDirs.contains(name)) continue;
       await _copyDir(entity, Directory(p.join(to.path, name)));
     } else if (entity is File) {
-      if (_skipFiles.contains(name)) continue;
+      // Injectable app configs are ignored generated output. A dirty local
+      // checkout can carry one even though a remote template clone never does.
+      if (_skipFiles.contains(name) || name.endsWith('.config.dart')) continue;
       await entity.copy(p.join(to.path, name));
     }
     // Links fall through: a template's symlinks (e.g. ios/.symlinks) are build

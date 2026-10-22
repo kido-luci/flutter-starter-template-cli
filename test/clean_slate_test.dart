@@ -16,70 +16,77 @@ void main() {
       await tempDir.delete(recursive: true);
     });
 
-    test('removes submodules + .gitmodules and re-inits a fresh git repo',
-        () async {
-      // Arrange: fake a freshly cloned template with submodule baggage.
-      File(p.join(tempDir.path, 'simple_backend_server', 'main.go'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('package main');
-      File(p.join(tempDir.path, 'published', 'cli', 'bin', 'fst.dart'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('void main() {}');
-      // Non-cli tooling must survive.
-      File(p.join(tempDir.path, 'tool', 'setup.sh'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('#!/usr/bin/env bash');
-      File(p.join(tempDir.path, '.gitmodules'))
-          .writeAsStringSync('[submodule "published/cli"]');
-      File(p.join(tempDir.path, '.git', 'HISTORY_MARKER'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('template history');
+    test(
+      'removes submodules + .gitmodules and re-inits a fresh git repo',
+      () async {
+        // Arrange: fake a freshly cloned template with submodule baggage.
+        File(p.join(tempDir.path, 'simple_backend_server', 'main.go'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('package main');
+        File(p.join(tempDir.path, 'published', 'cli', 'bin', 'fst.dart'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('void main() {}');
+        // Non-cli tooling must survive.
+        File(p.join(tempDir.path, 'tool', 'setup.sh'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('#!/usr/bin/env bash');
+        File(
+          p.join(tempDir.path, '.gitmodules'),
+        ).writeAsStringSync('[submodule "published/cli"]');
+        File(p.join(tempDir.path, '.git', 'HISTORY_MARKER'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('template history');
 
-      // Act.
-      await prepareCleanSlate(tempDir.path);
+        // Act.
+        await prepareCleanSlate(tempDir.path);
 
-      // Assert: baggage is gone.
-      expect(
-        Directory(p.join(tempDir.path, 'simple_backend_server')).existsSync(),
-        isFalse,
-      );
-      expect(
-        Directory(p.join(tempDir.path, 'published', 'cli')).existsSync(),
-        isFalse,
-      );
-      expect(File(p.join(tempDir.path, '.gitmodules')).existsSync(), isFalse);
+        // Assert: baggage is gone.
+        expect(
+          Directory(p.join(tempDir.path, 'simple_backend_server')).existsSync(),
+          isFalse,
+        );
+        expect(
+          Directory(p.join(tempDir.path, 'published', 'cli')).existsSync(),
+          isFalse,
+        );
+        expect(File(p.join(tempDir.path, '.gitmodules')).existsSync(), isFalse);
 
-      // Non-cli tooling is preserved.
-      expect(
-          File(p.join(tempDir.path, 'tool', 'setup.sh')).existsSync(), isTrue);
+        // Non-cli tooling is preserved.
+        expect(
+          File(p.join(tempDir.path, 'tool', 'setup.sh')).existsSync(),
+          isTrue,
+        );
 
-      // Git is a fresh repo: the template history is gone but .git/HEAD exists.
-      expect(
-        File(p.join(tempDir.path, '.git', 'HISTORY_MARKER')).existsSync(),
-        isFalse,
-      );
-      expect(File(p.join(tempDir.path, '.git', 'HEAD')).existsSync(), isTrue);
-    });
+        // Git is a fresh repo: the template history is gone but .git/HEAD exists.
+        expect(
+          File(p.join(tempDir.path, '.git', 'HISTORY_MARKER')).existsSync(),
+          isFalse,
+        );
+        expect(File(p.join(tempDir.path, '.git', 'HEAD')).existsSync(), isTrue);
+      },
+    );
 
-    test('folds a kept submodule in by stripping its leftover .git gitlink',
-        () async {
-      // A kept submodule (not in the delete list) cloned with
-      // --recurse-submodules leaves a `.git` gitlink file behind.
-      final pkg = p.join(tempDir.path, 'published', 'rev_sync');
-      File(p.join(pkg, 'pubspec.yaml'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('name: rev_sync');
-      File(p.join(pkg, '.git')).writeAsStringSync(
-        'gitdir: ../../.git/modules/published/rev_sync',
-      );
+    test(
+      'folds a kept submodule in by stripping its leftover .git gitlink',
+      () async {
+        // A kept submodule (not in the delete list) cloned with
+        // --recurse-submodules leaves a `.git` gitlink file behind.
+        final pkg = p.join(tempDir.path, 'published', 'rev_sync');
+        File(p.join(pkg, 'pubspec.yaml'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('name: rev_sync');
+        File(
+          p.join(pkg, '.git'),
+        ).writeAsStringSync('gitdir: ../../.git/modules/published/rev_sync');
 
-      // Act.
-      await prepareCleanSlate(tempDir.path);
+        // Act.
+        await prepareCleanSlate(tempDir.path);
 
-      // The source survives; the gitlink is gone so git tracks it as plain
-      // files rather than an embedded repository.
-      expect(File(p.join(pkg, 'pubspec.yaml')).existsSync(), isTrue);
-      expect(File(p.join(pkg, '.git')).existsSync(), isFalse);
-    });
+        // The source survives; the gitlink is gone so git tracks it as plain
+        // files rather than an embedded repository.
+        expect(File(p.join(pkg, 'pubspec.yaml')).existsSync(), isTrue);
+        expect(File(p.join(pkg, '.git')).existsSync(), isFalse);
+      },
+    );
   });
 }

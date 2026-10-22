@@ -11,10 +11,7 @@ const _templateDisplayName = 'Flutter Starter';
 const _templateOrg = 'Luci Studio';
 
 /// Top-level entry: rewrites all template identifiers in [projectDir].
-Future<void> rewriteProject(
-  String projectDir,
-  ProjectConfig config,
-) async {
+Future<void> rewriteProject(String projectDir, ProjectConfig config) async {
   await _rewriteTextFiles(projectDir, config);
   await _moveMainActivityFile(projectDir, config);
 }
@@ -35,11 +32,121 @@ Future<void> _rewriteTextFiles(String dir, ProjectConfig config) async {
       // as a stray .DS_Store). There is nothing to substitute — skip it.
       continue;
     }
-    final patched = _applySubstitutions(original, config);
+    var patched = _applySubstitutions(original, config);
+    if (p.extension(entity.path) == '.dart' &&
+        patched.contains('package:${config.packageName}/')) {
+      patched = sortDartImports(patched);
+    }
     if (patched != original) {
       await entity.writeAsString(patched);
     }
   }
+}
+
+/// Sorts the leading Dart import section while preserving `fst:*` marker
+/// regions as indivisible blocks.
+///
+/// Renaming `package:flutter_starter_template/...` can move a self-import to a
+/// different alphabetical position (for example, `package:phase02_app/...`).
+/// The template's imports are valid before the rename, but the generated file
+/// would then fail `directives_ordering`. Marker blocks stay intact so later
+/// auth/feature rewrites still remove exactly the imports they own.
+String sortDartImports(String content) {
+  final lines = content.split('\n');
+  final importIndexes = <int>[
+    for (var i = 0; i < lines.length; i++)
+      if (_importUri(lines[i]) != null) i,
+  ];
+  if (importIndexes.length < 2) return content;
+
+  var start = importIndexes.first;
+  if (start > 0 && _isMarkerStart(lines[start - 1])) start--;
+  var end = importIndexes.last;
+  while (end + 1 < lines.length && !lines[end].trim().endsWith(';')) {
+    end++;
+  }
+  if (end + 1 < lines.length && _isMarkerEnd(lines[end + 1])) end++;
+
+  final blocks = <({List<String> lines, String uri, int index})>[];
+  var index = start;
+  while (index <= end) {
+    final line = lines[index];
+    if (line.trim().isEmpty) {
+      index++;
+      continue;
+    }
+
+    if (_isMarkerStart(line)) {
+      final marker = RegExp(r'fst:[A-Za-z0-9:_-]+:start').firstMatch(line);
+      if (marker == null) return content;
+      final endNeedle = marker.group(0)!.replaceFirst(':start', ':end');
+      final blockLines = <String>[];
+      String? firstUri;
+      var closed = false;
+      while (index <= end) {
+        final blockLine = lines[index++];
+        blockLines.add(blockLine);
+        firstUri ??= _importUri(blockLine);
+        if (blockLine.contains(endNeedle)) {
+          closed = true;
+          break;
+        }
+      }
+      if (!closed || firstUri == null) return content;
+      blocks.add((lines: blockLines, uri: firstUri, index: blocks.length));
+      continue;
+    }
+
+    final uri = _importUri(line);
+    if (uri == null) return content;
+    final importLines = <String>[line];
+    while (index + 1 <= end && !importLines.last.trim().endsWith(';')) {
+      index++;
+      importLines.add(lines[index]);
+    }
+    blocks.add((lines: importLines, uri: uri, index: blocks.length));
+    index++;
+  }
+
+  blocks.sort((a, b) {
+    final category = _importCategory(a.uri).compareTo(_importCategory(b.uri));
+    if (category != 0) return category;
+    final uri = a.uri.compareTo(b.uri);
+    return uri != 0 ? uri : a.index.compareTo(b.index);
+  });
+
+  final sorted = <String>[];
+  int? previousCategory;
+  for (final block in blocks) {
+    final category = _importCategory(block.uri);
+    if (previousCategory != null && previousCategory != category) {
+      sorted.add('');
+    }
+    sorted.addAll(block.lines);
+    previousCategory = category;
+  }
+
+  return [
+    ...lines.take(start),
+    ...sorted,
+    ...lines.skip(end + 1),
+  ].join('\n');
+}
+
+String? _importUri(String line) => RegExp(
+      r'''^\s*import\s+['"]([^'"]+)['"]''',
+    ).firstMatch(line)?.group(1);
+
+bool _isMarkerStart(String line) =>
+    RegExp(r'fst:[A-Za-z0-9:_-]+:start').hasMatch(line);
+
+bool _isMarkerEnd(String line) =>
+    RegExp(r'fst:[A-Za-z0-9:_-]+:end').hasMatch(line);
+
+int _importCategory(String uri) {
+  if (uri.startsWith('dart:')) return 0;
+  if (uri.startsWith('package:')) return 1;
+  return 2;
 }
 
 String _applySubstitutions(String src, ProjectConfig config) {
@@ -47,10 +154,7 @@ String _applySubstitutions(String src, ProjectConfig config) {
   // partial replacement collisions.
   return src
       // iOS bundle ID (camelCase form used in pbxproj)
-      .replaceAll(
-        _templateBundleIdIos,
-        config.bundleId,
-      )
+      .replaceAll(_templateBundleIdIos, config.bundleId)
       // iOS RunnerTests suffix
       .replaceAll(
         '$_templateBundleIdIos.RunnerTests',

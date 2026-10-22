@@ -28,7 +28,9 @@ enum FeatureSource {
 Map<String, String> featureFiles(
   FeatureNames n, {
   FeatureSource source = FeatureSource.presentation,
+  String? routePath,
 }) {
+  final resolvedRoutePath = routePath ?? '/${n.kebab}';
   final files = <String, String>{
     'pubspec.yaml': _pubspec(n, source),
     'lib/${n.package}.dart': _barrel(n, source),
@@ -37,7 +39,10 @@ Map<String, String> featureFiles(
     'lib/src/presentation/bloc/${n.snake}_cubit.dart': _cubit(n, source),
     'lib/src/presentation/bloc/${n.snake}_state.dart': _state(n, source),
     'lib/src/presentation/screens/${n.snake}_screen.dart': _screen(n, source),
-    'lib/src/presentation/${n.snake}_routes.dart': _routes(n),
+    'lib/src/presentation/screens/${n.snake}_details_screen.dart':
+        _detailsScreen(n),
+    'lib/src/presentation/${n.snake}_routes.dart':
+        _routes(n, resolvedRoutePath),
     'test/presentation/${n.snake}_routes_test.dart': _routesTest(n),
   };
 
@@ -79,12 +84,13 @@ Map<String, String> featureFiles(
 // ── pubspec ──────────────────────────────────────────────────────────────────
 
 String _pubspec(FeatureNames n, FeatureSource source) {
-  final workspaceDeps = StringBuffer();
+  final workspaceDeps = StringBuffer()..writeln('  app_ui: ^0.1.0');
   if (source == FeatureSource.local ||
       source == FeatureSource.api ||
       source == FeatureSource.sync) {
     workspaceDeps.writeln('  architecture: ^0.1.0');
   }
+  workspaceDeps.writeln('  localization: ^0.1.0');
   if (source == FeatureSource.api || source == FeatureSource.sync) {
     workspaceDeps.writeln('  network: ^0.1.0');
   }
@@ -339,14 +345,22 @@ class ${n.pascal}Cubit extends Cubit<${n.pascal}State> {
 }
 
 String _screen(FeatureNames n, FeatureSource source) {
+  final relativeImports = <String>[
+    "import '../../locator.dart';",
+    "import '../bloc/${n.snake}_cubit.dart';",
+    "import '../bloc/${n.snake}_state.dart';",
+    "import '../${n.snake}_routes.dart';",
+  ]..sort();
+  final imports = relativeImports.join('\n');
   if (source == FeatureSource.presentation) {
     return '''
+import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+import 'package:localization/localization.dart';
 
-import '../../locator.dart';
-import '../bloc/${n.snake}_cubit.dart';
-import '../bloc/${n.snake}_state.dart';
+$imports
 
 /// The ${n.snake} feature's screen.
 class ${n.pascal}Screen extends StatelessWidget {
@@ -354,14 +368,30 @@ class ${n.pascal}Screen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return BlocProvider(
       create: (_) => getIt<${n.pascal}Cubit>()..load(),
-      child: Scaffold(
-        appBar: AppBar(title: const Text('${n.pascal}')),
-        body: BlocBuilder<${n.pascal}Cubit, ${n.pascal}State>(
-          builder: (context, state) => Center(
-            child: Text(state.isReady ? '${n.pascal} ready' : 'Loading…'),
+      child: AppScaffold(
+        title: l10n.appTitle,
+        actions: [
+          IconButton(
+            tooltip: l10n.appTitle,
+            onPressed: () => context.pushNamed(${n.pascal}Routes.detailsName),
+            icon: const Icon(Icons.arrow_forward),
           ),
+        ],
+        body: BlocBuilder<${n.pascal}Cubit, ${n.pascal}State>(
+          builder: (context, state) => state.isReady
+              ? Padding(
+                  padding: const EdgeInsetsDirectional.all(AppSpacing.md),
+                  child: AppCard(
+                    child: Text(
+                      l10n.appTitle,
+                      style: context.textTheme.bodyLarge,
+                    ),
+                  ),
+                )
+              : AppLoading(label: l10n.commonLoading),
         ),
       ),
     );
@@ -371,12 +401,13 @@ class ${n.pascal}Screen extends StatelessWidget {
   }
 
   return '''
+import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+import 'package:localization/localization.dart';
 
-import '../../locator.dart';
-import '../bloc/${n.snake}_cubit.dart';
-import '../bloc/${n.snake}_state.dart';
+$imports
 
 /// The ${n.snake} feature's screen.
 class ${n.pascal}Screen extends StatelessWidget {
@@ -384,26 +415,44 @@ class ${n.pascal}Screen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return BlocProvider(
       create: (_) => getIt<${n.pascal}Cubit>()..load(),
-      child: Scaffold(
-        appBar: AppBar(title: const Text('${n.pascal}')),
+      child: AppScaffold(
+        title: l10n.appTitle,
+        actions: [
+          IconButton(
+            tooltip: l10n.appTitle,
+            onPressed: () => context.pushNamed(${n.pascal}Routes.detailsName),
+            icon: const Icon(Icons.arrow_forward),
+          ),
+        ],
         body: BlocBuilder<${n.pascal}Cubit, ${n.pascal}State>(
           builder: (context, state) {
             if (state.isLoading) {
-              return const Center(child: CircularProgressIndicator());
+              return AppLoading(label: l10n.commonLoading);
             }
             if (state.errorMessage != null) {
-              return Center(child: Text(state.errorMessage!));
+              return AppErrorView(
+                message: state.errorMessage!,
+                retryLabel: l10n.commonRetry,
+                onRetry: () => context.read<${n.pascal}Cubit>().load(),
+              );
             }
             if (state.items.isEmpty) {
-              return const Center(child: Text('No items yet.'));
+              return AppEmptyView(message: l10n.appTitle);
             }
-            return ListView.builder(
+            return ListView.separated(
+              padding: const EdgeInsetsDirectional.symmetric(
+                vertical: AppSpacing.sm,
+              ),
               itemCount: state.items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
               itemBuilder: (context, index) {
                 final item = state.items[index];
-                return ListTile(title: Text(item.title));
+                return AppCard(
+                  child: Text(item.title, style: context.textTheme.titleMedium),
+                );
               },
             );
           },
@@ -415,22 +464,68 @@ class ${n.pascal}Screen extends StatelessWidget {
 ''';
 }
 
-String _routes(FeatureNames n) => '''
+String _detailsScreen(FeatureNames n) => '''
+import 'package:app_ui/app_ui.dart';
+import 'package:flutter/material.dart';
+import 'package:localization/localization.dart';
+
+/// Nested details page used to verify stack-preserving feature navigation.
+class ${n.pascal}DetailsScreen extends StatelessWidget {
+  const ${n.pascal}DetailsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return AppScaffold(
+      title: l10n.appTitle,
+      body: Padding(
+        padding: const EdgeInsetsDirectional.all(AppSpacing.md),
+        child: AppCard(
+          child: Text(l10n.appTitle, style: context.textTheme.bodyLarge),
+        ),
+      ),
+    );
+  }
+}
+''';
+
+String _routes(FeatureNames n, String routePath) => '''
 import 'package:go_router/go_router.dart';
 
+import 'screens/${n.snake}_details_screen.dart';
 import 'screens/${n.snake}_screen.dart';
 
 /// Canonical navigation paths owned by the ${n.snake} feature.
 abstract final class ${n.pascal}Routes {
+  /// Stable GoRouter name for the feature root.
+  static const name = '${n.routeName}';
+
   /// The ${n.snake} screen.
-  static const root = '/${n.kebab}';
+  static const root = '$routePath';
+
+  /// Stable GoRouter name for the nested details page.
+  static const detailsName = '${n.detailsRouteName}';
+
+  /// Relative path mounted below the feature root.
+  static const detailsSegment = 'details';
+
+  /// Absolute location for imperative navigation and deep links.
+  static const details = '\$root/\$detailsSegment';
 }
 
 /// The ${n.snake} feature's routes, mounted by the host app.
 List<RouteBase> get ${n.camel}Routes => [
   GoRoute(
+    name: ${n.pascal}Routes.name,
     path: ${n.pascal}Routes.root,
     builder: (context, state) => const ${n.pascal}Screen(),
+    routes: [
+      GoRoute(
+        name: ${n.pascal}Routes.detailsName,
+        path: ${n.pascal}Routes.detailsSegment,
+        builder: (context, state) => const ${n.pascal}DetailsScreen(),
+      ),
+    ],
   ),
 ];
 ''';
@@ -449,6 +544,14 @@ void main() {
 
     test('contributes the feature route', () {
       expect(paths, [${n.pascal}Routes.root]);
+    });
+
+    test('uses stable names and contributes a nested details route', () {
+      final root = ${n.camel}Routes.single as GoRoute;
+      final details = root.routes.single as GoRoute;
+      expect(root.name, ${n.pascal}Routes.name);
+      expect(details.name, ${n.pascal}Routes.detailsName);
+      expect(details.path, ${n.pascal}Routes.detailsSegment);
     });
   });
 }
@@ -636,7 +739,9 @@ class ${n.pascal}RepositoryImpl implements ${n.pascal}Repository {
   Future<Result<List<${n.pascal}>>> list() async {
     try {
       final dtos = await _remote.list();
-      return Ok(dtos.map((d) => ${n.pascal}(id: d.id, title: d.title)).toList());
+      return Ok(
+        dtos.map((d) => ${n.pascal}(id: d.id, title: d.title)).toList(),
+      );
     } on DioException catch (e) {
       return Err(UnknownFailure(e.message ?? 'Network error'));
     }

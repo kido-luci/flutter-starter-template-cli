@@ -133,14 +133,7 @@ Future<void> applyBranding(
 }) async {
   if (scheme != null) {
     _rewriteFile(
-      p.join(
-        projectDir,
-        'packages',
-        'theme',
-        'lib',
-        'src',
-        'theme_state.dart',
-      ),
+      p.join(projectDir, 'packages', 'theme', 'lib', 'src', 'theme_state.dart'),
       (content) => setThemeScheme(content, scheme),
     );
   }

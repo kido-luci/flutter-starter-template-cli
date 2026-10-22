@@ -17,9 +17,9 @@ void main() {
     bool exists(String relative) =>
         File(p.join(dir.path, p.joinAll(relative.split('/')))).existsSync();
 
-    bool dirExists(String relative) =>
-        Directory(p.join(dir.path, p.joinAll(relative.split('/'))))
-            .existsSync();
+    bool dirExists(String relative) => Directory(
+          p.join(dir.path, p.joinAll(relative.split('/'))),
+        ).existsSync();
 
     setUp(() {
       dir = Directory.systemTemp.createTempSync('fst_e2e_test_');

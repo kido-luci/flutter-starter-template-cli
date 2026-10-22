@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.0
+
+- Added standalone package lifecycle commands: create, list, validate, and
+  transactionally remove typed contracts, infrastructure, and UI packages.
+- Added dependency-impact checks, ownership fingerprints, dry-run support, and
+  rollback regression coverage for package and feature mutations.
+- Added centralized `fst create` compatibility validation. Contradictory or
+  meaningless pillar/provider/API flags now fail before the output directory is
+  created, with actionable diagnostics.
+- Documented the supported pillar, auth-provider, database, setup, feature
+  exclusion, and local-template combinations.
+
 ## 1.3.0
 
 - **Drift/SQLite database (`fst create --database drift`)**: scaffold with

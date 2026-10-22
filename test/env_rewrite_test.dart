@@ -30,11 +30,13 @@ void main() {
     test('replaces the URL, preserving other keys and formatting', () {
       expect(
         setApiBaseUrl(env, 'https://api.acme.com'),
-        equals('{\n'
-            '  "FLAVOR": "staging",\n'
-            '  "API_BASE_URL": "https://api.acme.com",\n'
-            '  "API_TIMEOUT_SECONDS": 20\n'
-            '}\n'),
+        equals(
+          '{\n'
+          '  "FLAVOR": "staging",\n'
+          '  "API_BASE_URL": "https://api.acme.com",\n'
+          '  "API_TIMEOUT_SECONDS": 20\n'
+          '}\n',
+        ),
       );
     });
 
@@ -66,9 +68,9 @@ void main() {
         ..writeAsStringSync(content);
     }
 
-    String read(String relative) =>
-        File(p.join(dir.path, p.joinAll(relative.split('/'))))
-            .readAsStringSync();
+    String read(String relative) => File(
+          p.join(dir.path, p.joinAll(relative.split('/'))),
+        ).readAsStringSync();
 
     setUp(() => dir = Directory.systemTemp.createTempSync('fst_env_test_'));
     tearDown(() => dir.deleteSync(recursive: true));
@@ -87,7 +89,9 @@ void main() {
 
     test('is a no-op when env files are absent', () async {
       await expectLater(
-          applyApiBaseUrl(dir.path, 'https://api.acme.com'), completes);
+        applyApiBaseUrl(dir.path, 'https://api.acme.com'),
+        completes,
+      );
     });
   });
 }

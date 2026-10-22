@@ -25,8 +25,9 @@ Future<void> applyFirebaseAuthProvider(String projectDir) async {
   final repoImpl = _firebaseAuthRepositoryImpl();
   final firebaseModule = _firebaseAuthModule();
   final newPubspec = _rewritePubspec(
-    File(p.join(projectDir, 'packages', 'features', 'auth', 'pubspec.yaml'))
-        .readAsStringSync(),
+    File(
+      p.join(projectDir, 'packages', 'features', 'auth', 'pubspec.yaml'),
+    ).readAsStringSync(),
   );
 
   // ── 2. Commit writes ────────────────────────────────────────────────────────

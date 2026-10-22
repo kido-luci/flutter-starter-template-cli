@@ -30,7 +30,8 @@ void main() {
             anyOf(
               contains('lib/src/domain/entities/settings.dart'),
               contains(
-                  'lib/src/data/repositories/settings_repository_impl.dart'),
+                'lib/src/data/repositories/settings_repository_impl.dart',
+              ),
             ),
           ),
         );
@@ -55,7 +56,9 @@ void main() {
 
       test('di anchor uses the feature-specific init function', () {
         expect(
-            files['lib/src/di.dart'], contains('void initSettingsFeature()'));
+          files['lib/src/di.dart'],
+          contains('void initSettingsFeature()'),
+        );
       });
 
       test('routes file mounts the screen at the kebab path', () {
@@ -72,8 +75,10 @@ void main() {
     });
 
     group('source: local', () {
-      final files =
-          featureFiles(FeatureNames('tasks'), source: FeatureSource.local);
+      final files = featureFiles(
+        FeatureNames('tasks'),
+        source: FeatureSource.local,
+      );
 
       test('produces the expected scaffold file set', () {
         expect(
@@ -102,7 +107,8 @@ void main() {
             anyOf(
               contains('lib/src/data/models/tasks_dto.dart'),
               contains(
-                  'lib/src/data/datasources/tasks_remote_data_source.dart'),
+                'lib/src/data/datasources/tasks_remote_data_source.dart',
+              ),
               contains('lib/src/data/sync/tasks_sync_adapter.dart'),
               contains('SYNC_TODO.md'),
             ),
@@ -123,8 +129,10 @@ void main() {
       });
 
       test('entity file defines the Tasks class', () {
-        expect(files['lib/src/domain/entities/tasks.dart'],
-            contains('class Tasks'));
+        expect(
+          files['lib/src/domain/entities/tasks.dart'],
+          contains('class Tasks'),
+        );
       });
 
       test('repository interface uses Result return types', () {
@@ -151,13 +159,17 @@ void main() {
         final cubit = files['lib/src/presentation/bloc/tasks_cubit.dart']!;
         expect(cubit, contains('TasksRepository'));
         expect(
-            cubit, contains("import 'package:architecture/architecture.dart'"));
+          cubit,
+          contains("import 'package:architecture/architecture.dart'"),
+        );
       });
     });
 
     group('source: api', () {
-      final files =
-          featureFiles(FeatureNames('products'), source: FeatureSource.api);
+      final files = featureFiles(
+        FeatureNames('products'),
+        source: FeatureSource.api,
+      );
 
       test('produces the expected scaffold file set', () {
         expect(
@@ -201,8 +213,10 @@ void main() {
 
       test('DTO uses json_annotation', () {
         final dto = files['lib/src/data/models/products_dto.dart']!;
-        expect(dto,
-            contains("import 'package:json_annotation/json_annotation.dart'"));
+        expect(
+          dto,
+          contains("import 'package:json_annotation/json_annotation.dart'"),
+        );
         expect(dto, contains('@JsonSerializable'));
         expect(dto, contains('class ProductsDto'));
       });
@@ -230,8 +244,10 @@ void main() {
     });
 
     group('source: sync', () {
-      final files =
-          featureFiles(FeatureNames('notes'), source: FeatureSource.sync);
+      final files = featureFiles(
+        FeatureNames('notes'),
+        source: FeatureSource.sync,
+      );
 
       test('produces the expected scaffold file set', () {
         expect(
@@ -301,14 +317,70 @@ void main() {
 
     group('idempotency — file set is deterministic', () {
       test(
-          'calling featureFiles twice with the same args yields identical maps',
-          () {
-        for (final source in FeatureSource.values) {
-          final a = featureFiles(FeatureNames('repeat'), source: source);
-          final b = featureFiles(FeatureNames('repeat'), source: source);
-          expect(a, equals(b), reason: 'source=$source');
-        }
-      });
+        'calling featureFiles twice with the same args yields identical maps',
+        () {
+          for (final source in FeatureSource.values) {
+            final a = featureFiles(FeatureNames('repeat'), source: source);
+            final b = featureFiles(FeatureNames('repeat'), source: source);
+            expect(a, equals(b), reason: 'source=$source');
+          }
+        },
+      );
+    });
+
+    test('generated screen imports remain sorted for every feature name', () {
+      for (final name in ['activity_feed', 'inventory', 'zebra']) {
+        final files = featureFiles(FeatureNames(name));
+        final screen =
+            files['lib/src/presentation/screens/${name}_screen.dart']!;
+        final packageImports = screen
+            .split('\n')
+            .where((line) => line.startsWith("import 'package:"))
+            .toList();
+        expect(packageImports, [...packageImports]..sort(), reason: name);
+        final relativeImports = screen
+            .split('\n')
+            .where((line) => line.startsWith("import '.."))
+            .toList();
+        expect(relativeImports, [...relativeImports]..sort(), reason: name);
+      }
+    });
+
+    test(
+        'generated screens use app_ui, tokens, directional padding, and localization without hardcoded UI text',
+        () {
+      for (final source in FeatureSource.values) {
+        final files = featureFiles(FeatureNames('catalog'), source: source);
+        final pubspec = files['pubspec.yaml']!;
+        expect(pubspec, contains('app_ui: ^0.1.0'), reason: 'source=$source');
+        expect(
+          pubspec,
+          contains('localization: ^0.1.0'),
+          reason: 'source=$source',
+        );
+        final screen =
+            files['lib/src/presentation/screens/catalog_screen.dart']!;
+        final details =
+            files['lib/src/presentation/screens/catalog_details_screen.dart']!;
+        expect(screen, contains('AppScaffold('), reason: 'source=$source');
+        expect(screen, contains('AppCard('), reason: 'source=$source');
+        expect(screen, contains('AppSpacing.'), reason: 'source=$source');
+        expect(
+          screen,
+          contains('EdgeInsetsDirectional.'),
+          reason: 'source=$source',
+        );
+        expect(screen, contains('context.l10n'), reason: 'source=$source');
+        expect(details, contains('AppScaffold('), reason: 'source=$source');
+        expect(details, contains('AppCard('), reason: 'source=$source');
+        expect(details, contains('AppSpacing.'), reason: 'source=$source');
+        expect(
+          details,
+          contains('EdgeInsetsDirectional.'),
+          reason: 'source=$source',
+        );
+        expect(details, contains('context.l10n'), reason: 'source=$source');
+      }
     });
   });
 }

@@ -31,6 +31,9 @@ jobs:
       - name: Analyze
         run: dart analyze --fatal-infos
 
+      - name: Run package lifecycle regression tests
+        run: dart test test/package_lifecycle_command_test.dart --reporter=expanded
+
       - name: Run tests
         run: dart test --reporter=expanded
 

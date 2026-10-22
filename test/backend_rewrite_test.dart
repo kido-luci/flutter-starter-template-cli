@@ -12,10 +12,7 @@ void main() {
           "import 'package:network/network.dart';\n"
           '// fst:backend:end\n'
           "import 'b';\n";
-      expect(
-        removeBackendRegions(src),
-        equals("import 'a';\nimport 'b';\n"),
-      );
+      expect(removeBackendRegions(src), equals("import 'a';\nimport 'b';\n"));
     });
 
     test('removes a YAML backend block', () {
@@ -67,9 +64,18 @@ void main() {
       const src = 'keep\n'
           '// fst:backend:start\n'
           'A\n'; // no matching :end
+      expect(() => removeBackendRegions(src), throwsFormatException);
+    });
+  });
+
+  group('removeNetworkRegions', () {
+    test('removes network regions independently of backend regions', () {
+      const src = '// fst:network:start\nnetwork\n// fst:network:end\n'
+          '// fst:backend:start\nsync\n// fst:backend:end\n';
+
       expect(
-        () => removeBackendRegions(src),
-        throwsFormatException,
+        removeNetworkRegions(src),
+        equals('// fst:backend:start\nsync\n// fst:backend:end\n'),
       );
     });
   });
@@ -83,9 +89,9 @@ void main() {
         ..writeAsStringSync(content);
     }
 
-    String read(String relative) =>
-        File(p.join(dir.path, p.joinAll(relative.split('/'))))
-            .readAsStringSync();
+    String read(String relative) => File(
+          p.join(dir.path, p.joinAll(relative.split('/'))),
+        ).readAsStringSync();
 
     bool exists(String relative) =>
         File(p.join(dir.path, p.joinAll(relative.split('/')))).existsSync();
@@ -97,17 +103,17 @@ void main() {
       write(
         'pubspec.yaml',
         'workspace:\n'
-            '  # fst:backend:start\n'
+            '  # fst:network:start\n'
             '  - packages/network\n'
-            '  # fst:backend:end\n'
+            '  # fst:network:end\n'
             '  - packages/app_platform\n'
             '  # fst:backend:start\n'
             '  - packages/sync_connectivity_plus\n'
             '  # fst:backend:end\n'
             'dependencies:\n'
-            '  # fst:backend:start\n'
+            '  # fst:network:start\n'
             '  network: ^0.1.0\n'
-            '  # fst:backend:end\n'
+            '  # fst:network:end\n'
             '  app_platform: ^0.1.0\n'
             '  # fst:backend:start\n'
             '  sync_connectivity_plus: ^0.1.0\n'
@@ -118,16 +124,16 @@ void main() {
       // injection.dart: network + sync imports and modules.
       write(
         'lib/app/di/injection.dart',
-        '// fst:backend:start\n'
+        '// fst:network:start\n'
             "import 'package:network/network.dart';\n"
-            '// fst:backend:end\n'
+            '// fst:network:end\n'
             "import 'package:storage/storage.dart';\n"
             '// fst:backend:start\n'
             "import 'package:sync_connectivity_plus/sync_connectivity_plus.dart';\n"
             '// fst:backend:end\n'
-            '// fst:backend:start\n'
+            '// fst:network:start\n'
             '    ExternalModule(NetworkPackageModule),\n'
-            '// fst:backend:end\n'
+            '// fst:network:end\n'
             '    ExternalModule(StoragePackageModule),\n'
             '// fst:backend:start\n'
             '    ExternalModule(SyncConnectivityPlusPackageModule),\n'
@@ -141,11 +147,20 @@ void main() {
             "  // fst:backend:start\n"
             "  'sync_connectivity_plus': 1,\n"
             "  // fst:backend:end\n"
-            "  // fst:backend:start\n"
+            "  // fst:network:start\n"
             "  'network': 2,\n"
-            "  // fst:backend:end\n"
+            "  // fst:network:end\n"
             "  'app_platform': 2,\n"
             "};\n",
+      );
+
+      // firebase_optional_di_test.dart: network import + assertions.
+      write(
+        'test/architecture/firebase_optional_di_test.dart',
+        '// fst:network:start\n'
+            "import 'package:network/network.dart';\n"
+            '// fst:network:end\n'
+            "import 'package:storage/storage.dart';\n",
       );
 
       // Backend-only files to be deleted.
@@ -207,6 +222,12 @@ void main() {
       expect(layering, isNot(contains('sync_connectivity_plus')));
       expect(layering, isNot(contains("'network'")));
       expect(layering, contains('app_platform'));
+
+      final firebaseOptionalDiTest = read(
+        'test/architecture/firebase_optional_di_test.dart',
+      );
+      expect(firebaseOptionalDiTest, isNot(contains('network')));
+      expect(firebaseOptionalDiTest, contains('storage'));
     });
 
     test('deletes the objectbox_sync_cursor_store.dart file', () async {
@@ -219,10 +240,7 @@ void main() {
 
     test('deletes the authenticated_dio_test.dart file', () async {
       await disableBackend(dir.path);
-      expect(
-        exists('test/architecture/authenticated_dio_test.dart'),
-        isFalse,
-      );
+      expect(exists('test/architecture/authenticated_dio_test.dart'), isFalse);
     });
 
     test('deletes the packages/network directory', () async {
@@ -233,6 +251,23 @@ void main() {
     test('deletes the packages/sync_connectivity_plus directory', () async {
       await disableBackend(dir.path);
       expect(exists('packages/sync_connectivity_plus/pubspec.yaml'), isFalse);
+    });
+
+    test('retains network wiring and package for JWT auth', () async {
+      await disableBackend(dir.path, preserveNetwork: true);
+
+      expect(read('pubspec.yaml'), contains('network: ^0.1.0'));
+      expect(read('pubspec.yaml'), isNot(contains('sync_connectivity_plus')));
+      expect(
+        read('lib/app/di/injection.dart'),
+        contains('NetworkPackageModule'),
+      );
+      expect(
+        read('lib/app/di/injection.dart'),
+        isNot(contains('SyncConnectivityPlusPackageModule')),
+      );
+      expect(exists('packages/network/pubspec.yaml'), isTrue);
+      expect(exists('test/architecture/authenticated_dio_test.dart'), isTrue);
     });
 
     test('is idempotent', () async {
@@ -265,31 +300,35 @@ void main() {
       expect(read('pubspec.yaml'), equals(originalPubspec));
     });
 
-    test('drops the sync-cursor table and row, keeping feature tables',
-        () async {
-      await disableBackend(dir.path);
+    test(
+      'drops the sync-cursor table and row, keeping feature tables',
+      () async {
+        await disableBackend(dir.path);
 
-      expect(
-        exists(
-            'packages/database_drift/lib/src/tables/sync_cursors_table.dart'),
-        isFalse,
-      );
-      expect(
-        exists(
-          'packages/database_drift/lib/src/entities/sync_cursor_entity.dart',
-        ),
-        isFalse,
-      );
-      expect(
-        exists('packages/database_drift/lib/src/tables/bookmarks_table.dart'),
-        isTrue,
-      );
+        expect(
+          exists(
+            'packages/database_drift/lib/src/tables/sync_cursors_table.dart',
+          ),
+          isFalse,
+        );
+        expect(
+          exists(
+            'packages/database_drift/lib/src/entities/sync_cursor_entity.dart',
+          ),
+          isFalse,
+        );
+        expect(
+          exists('packages/database_drift/lib/src/tables/bookmarks_table.dart'),
+          isTrue,
+        );
 
-      final appDatabase =
-          read('packages/database_drift/lib/src/app_database.dart');
-      expect(appDatabase, isNot(contains('sync_cursors_table')));
-      expect(appDatabase, contains('bookmarks_table'));
-    });
+        final appDatabase = read(
+          'packages/database_drift/lib/src/app_database.dart',
+        );
+        expect(appDatabase, isNot(contains('sync_cursors_table')));
+        expect(appDatabase, contains('bookmarks_table'));
+      },
+    );
   });
 
   group('removeRevSync', () {
@@ -301,9 +340,9 @@ void main() {
         ..writeAsStringSync(content);
     }
 
-    String read(String relative) =>
-        File(p.join(dir.path, p.joinAll(relative.split('/'))))
-            .readAsStringSync();
+    String read(String relative) => File(
+          p.join(dir.path, p.joinAll(relative.split('/'))),
+        ).readAsStringSync();
 
     setUp(() {
       dir = Directory.systemTemp.createTempSync('fst_revsync_test_');
@@ -336,7 +375,9 @@ void main() {
       expect(read('pubspec.yaml'), isNot(contains('rev_sync')));
       expect(read('pubspec.yaml'), contains('theme'));
       expect(
-          read('packages/database/pubspec.yaml'), isNot(contains('rev_sync')));
+        read('packages/database/pubspec.yaml'),
+        isNot(contains('rev_sync')),
+      );
       expect(read('packages/database/pubspec.yaml'), contains('drift'));
     });
 

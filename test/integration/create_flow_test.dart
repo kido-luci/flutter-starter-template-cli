@@ -25,68 +25,89 @@ void main() {
       await tempDir.delete(recursive: true);
     });
 
-    test('copies, cleans, renames and excludes into a coherent project',
-        () async {
-      final config = ProjectConfig(
-        displayName: 'Smoke App',
-        packageName: 'smoke_app',
-        bundleId: 'com.example.smoke',
-        org: 'Smoke Org',
-        outputDir: output,
-      );
+    test(
+      'copies, cleans, renames and excludes into a coherent project',
+      () async {
+        final config = ProjectConfig(
+          displayName: 'Smoke App',
+          packageName: 'smoke_app',
+          bundleId: 'com.example.smoke',
+          org: 'Smoke Org',
+          outputDir: output,
+        );
 
-      // The exact step order CreateCommand uses.
-      await copyLocalTemplate(template, output);
-      await prepareCleanSlate(output);
-      await rewriteProject(output, config);
-      await excludeFeatures(output, {'notifications'});
+        // The exact step order CreateCommand uses.
+        await copyLocalTemplate(template, output);
+        await prepareCleanSlate(output);
+        await rewriteProject(output, config);
+        await excludeFeatures(output, {'notifications'});
 
-      String read(String rel) =>
-          File(p.join(output, p.joinAll(rel.split('/')))).readAsStringSync();
+        String read(String rel) =>
+            File(p.join(output, p.joinAll(rel.split('/')))).readAsStringSync();
 
-      // Package identifier renamed in pubspec + Dart imports.
-      expect(read('pubspec.yaml'), contains('name: smoke_app'));
-      expect(read('lib/main.dart'), contains('package:smoke_app/'));
+        // Package identifier renamed in pubspec + Dart imports.
+        expect(read('pubspec.yaml'), contains('name: smoke_app'));
+        expect(read('lib/main.dart'), contains('package:smoke_app/'));
 
-      // Excluded feature: marker blocks stripped, package deleted; kept ones
-      // and the insertion marker survive.
-      final features = read('lib/app/features.dart');
-      expect(features, isNot(contains('feature_notifications')));
-      expect(features, isNot(contains('_NotificationsModule')));
-      expect(features, contains('fst:enabled-features'));
-      expect(
-        Directory(p.join(output, 'packages/features/notifications'))
-            .existsSync(),
-        isFalse,
-      );
-      expect(
-        Directory(p.join(output, 'packages/features/bookmarks')).existsSync(),
-        isTrue,
-      );
+        // Excluded feature: marker blocks stripped, package deleted; kept ones
+        // and the insertion marker survive.
+        final features = read('lib/app/features.dart');
+        expect(features, isNot(contains('feature_notifications')));
+        expect(features, isNot(contains('_NotificationsModule')));
+        expect(features, contains('fst:enabled-features'));
+        expect(
+          Directory(
+            p.join(output, 'packages/features/notifications'),
+          ).existsSync(),
+          isFalse,
+        );
+        expect(
+          Directory(p.join(output, 'packages/features/bookmarks')).existsSync(),
+          isTrue,
+        );
 
-      // MainActivity moved to the new bundle path; the template path is gone.
-      expect(
-        File(p.join(output,
-                'android/app/src/main/kotlin/com/example/smoke/MainActivity.kt'))
-            .existsSync(),
-        isTrue,
-      );
-      expect(
-        Directory(p.join(output, 'android/app/src/main/kotlin/com/lucistudio'))
-            .existsSync(),
-        isFalse,
-      );
+        // MainActivity moved to the new bundle path; the template path is gone.
+        expect(
+          File(
+            p.join(
+              output,
+              'android/app/src/main/kotlin/com/example/smoke/MainActivity.kt',
+            ),
+          ).existsSync(),
+          isTrue,
+        );
+        expect(
+          Directory(
+            p.join(output, 'android/app/src/main/kotlin/com/lucistudio'),
+          ).existsSync(),
+          isFalse,
+        );
+        expect(
+          File(p.join(output, 'lib/app/di/injection.config.dart')).existsSync(),
+          isFalse,
+        );
 
-      // A fresh git repo was initialised.
-      expect(Directory(p.join(output, '.git')).existsSync(), isTrue);
+        // A fresh git repo was initialised.
+        expect(Directory(p.join(output, '.git')).existsSync(), isTrue);
+        expect(
+          File(
+            p.join(
+              output,
+              'packages/features/bookmarks/.flutter-plugins-dependencies',
+            ),
+          ).existsSync(),
+          isFalse,
+        );
 
-      // No template identifier leaks anywhere in the produced tree.
-      final leaks = _filesContaining(
-        Directory(output),
-        ['flutter_starter_template', 'lucistudio', 'Luci Studio'],
-      );
-      expect(leaks, isEmpty, reason: 'template identifiers leaked: $leaks');
-    });
+        // No template identifier leaks anywhere in the produced tree.
+        final leaks = _filesContaining(Directory(output), [
+          'flutter_starter_template',
+          'lucistudio',
+          'Luci Studio',
+        ]);
+        expect(leaks, isEmpty, reason: 'template identifiers leaked: $leaks');
+      },
+    );
 
     test('an unclosed marker block aborts before any file is written',
         () async {
@@ -161,6 +182,18 @@ import 'package:flutter_starter_template/app.dart';
 
 void main() {}
 ''');
+  write(
+    'lib/app/di/injection.config.dart',
+    '// ignored generated output from a dirty local checkout\n',
+  );
+  write(
+    'lib/app/di/injection.dart',
+    '// Stable dependency-injection customization point.\n',
+  );
+  write(
+    'test/architecture/package_layering_test.dart',
+    '// Stable package-layer customization point.\n',
+  );
 
   write('lib/app/features.dart', '''
 // fst:feature:notifications:start
@@ -183,6 +216,12 @@ const enabledFeatures = <FeatureModule>[
 
   for (final feature in ['auth', 'notifications', 'bookmarks', 'collections']) {
     write(
-        'packages/features/$feature/pubspec.yaml', 'name: feature_$feature\n');
+      'packages/features/$feature/pubspec.yaml',
+      'name: feature_$feature\n',
+    );
   }
+  write(
+    'packages/features/bookmarks/.flutter-plugins-dependencies',
+    '{"plugins":{"android":[{"name":"objectbox_flutter_libs"}]}}',
+  );
 }

@@ -5,10 +5,25 @@ import 'package:interact/interact.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as p;
 
+import '../feature_manifest.dart';
 import '../feature_names.dart';
+import '../project_snapshot.dart';
 import '../rewrite/feature_template.dart';
 import '../rewrite/feature_wiring.dart';
 import '../validators.dart';
+
+typedef ProcessExecutor = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+});
+
+Future<ProcessResult> _defaultProcessExecutor(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+}) =>
+    Process.run(executable, arguments, workingDirectory: workingDirectory);
 
 /// Scaffolds a new feature package and wires it into the app (workspace,
 /// dependency, DI module, and `enabledFeatures`).
@@ -21,7 +36,12 @@ import '../validators.dart';
 /// - `sync` — everything in `api` plus offline-first sync stubs (see
 ///   the generated `SYNC_TODO.md` for the manual steps).
 class AddFeatureCommand extends Command<int> {
-  AddFeatureCommand(this._logger) {
+  AddFeatureCommand(
+    this._logger, {
+    ProcessExecutor processExecutor = _defaultProcessExecutor,
+    String? rootDirectory,
+  })  : _processExecutor = processExecutor,
+        _rootDirectory = rootDirectory {
     argParser
       ..addFlag(
         'no-codegen',
@@ -43,10 +63,17 @@ class AddFeatureCommand extends Command<int> {
         help: 'The kind of data+domain layer to scaffold alongside the '
             'presentation layer.',
         valueHelp: 'kind',
+      )
+      ..addOption(
+        'route-path',
+        help: 'Absolute static route path. Defaults to /<feature-name>.',
+        valueHelp: '/path',
       );
   }
 
   final Logger _logger;
+  final ProcessExecutor _processExecutor;
+  final String? _rootDirectory;
 
   @override
   String get name => 'add-feature';
@@ -58,11 +85,11 @@ class AddFeatureCommand extends Command<int> {
   @override
   String get invocation =>
       'fst add-feature <name> [--source presentation|local|api|sync] '
-      '[--no-codegen]';
+      '[--route-path /path] [--no-codegen]';
 
   @override
   Future<int> run() async {
-    final root = Directory.current.path;
+    final root = _rootDirectory ?? Directory.current.path;
     if (!_isProjectRoot(root)) {
       _logger.err(
         'Run this from the project root (the directory with pubspec.yaml and '
@@ -81,6 +108,12 @@ class AddFeatureCommand extends Command<int> {
     }
 
     final source = _resolveSource();
+    try {
+      _validateSourcePrerequisites(root, source);
+    } on FeatureWiringException catch (error) {
+      _logger.err(error.message);
+      return 1;
+    }
 
     final names = FeatureNames(rawName);
     final featureDir = p.join(root, 'packages', 'features', names.snake);
@@ -88,6 +121,16 @@ class AddFeatureCommand extends Command<int> {
       _logger.err(
         'Feature already exists: ${p.relative(featureDir, from: root)}',
       );
+      return 1;
+    }
+    final String routePath;
+    try {
+      routePath = validateFeatureRoutePath(
+        (argResults?['route-path'] as String?) ?? '/${names.kebab}',
+      );
+      validateFeatureRouteAvailability(root, names, routePath);
+    } on FeatureWiringException catch (error) {
+      _logger.err(error.message);
       return 1;
     }
 
@@ -103,17 +146,29 @@ class AddFeatureCommand extends Command<int> {
       return 1;
     }
 
+    final snapshot = ProjectSnapshot.capture(root);
     final scaffold = _logger.progress('Scaffolding ${names.package}');
     try {
-      featureFiles(names, source: source).forEach((relative, content) {
+      featureFiles(
+        names,
+        source: source,
+        routePath: routePath,
+      ).forEach((relative, content) {
         final file = File(p.join(featureDir, p.joinAll(relative.split('/'))));
         file.parent.createSync(recursive: true);
         file.writeAsStringSync(content);
       });
+      writeFeatureManifest(
+        featureDir,
+        names: names,
+        source: source,
+        routePath: routePath,
+      );
       scaffold.complete('Scaffolded ${names.package}');
     } on Object catch (error) {
       scaffold.fail('Scaffold failed');
-      _rollback(featureDir);
+      snapshot.restore();
+      _deleteFeatureDirectory(featureDir);
       _logger.err('$error');
       return 1;
     }
@@ -128,7 +183,8 @@ class AddFeatureCommand extends Command<int> {
       // Markers were validated above, so this is an unexpected I/O failure.
       // Roll back the scaffolded package so the run leaves no half-wired tree.
       wire.fail('Wiring failed');
-      _rollback(featureDir);
+      snapshot.restore();
+      _deleteFeatureDirectory(featureDir);
       _logger.err('$error');
       return 1;
     }
@@ -139,15 +195,28 @@ class AddFeatureCommand extends Command<int> {
         '`dart run build_runner build --delete-conflicting-outputs` before '
         'building.',
       );
-    } else if (!await _runCodegen(root)) {
-      return 1;
+    } else {
+      var succeeded = false;
+      try {
+        succeeded =
+            await _runCodegen(root, featureDir) && await _verifyProject(root);
+      } on Object catch (error) {
+        _logger.err('$error');
+      }
+      if (!succeeded) {
+        final rollback = _logger.progress('Rolling back failed feature');
+        snapshot.restore();
+        _deleteFeatureDirectory(featureDir);
+        rollback.complete('Restored the original project');
+        return 1;
+      }
     }
 
     _logger
       ..success(
         'Feature ${names.package} created and wired (source: ${source.name}).',
       )
-      ..info('  Screen route: /${names.kebab}')
+      ..info('  Screen route: $routePath (${names.routeName})')
       ..info('  Edit packages/features/${names.snake}/ to flesh it out.');
 
     if (source == FeatureSource.sync) {
@@ -197,11 +266,30 @@ class AddFeatureCommand extends Command<int> {
         _ => FeatureSource.presentation,
       };
 
+  void _validateSourcePrerequisites(String root, FeatureSource source) {
+    if ((source == FeatureSource.api || source == FeatureSource.sync) &&
+        !File(p.join(root, 'packages', 'network', 'pubspec.yaml'))
+            .existsSync()) {
+      throw FeatureWiringException(
+        'The ${source.name} source requires the workspace network package, '
+        'but this project was generated without it.',
+      );
+    }
+    if (source == FeatureSource.sync &&
+        !File(p.join(root, 'published', 'rev_sync', 'pubspec.yaml'))
+            .existsSync()) {
+      throw FeatureWiringException(
+        'The sync source requires published/rev_sync, but this project was '
+        'generated without the sync engine.',
+      );
+    }
+  }
+
   bool _isProjectRoot(String root) =>
       File(p.join(root, 'pubspec.yaml')).existsSync() &&
       File(p.join(root, 'lib', 'app', 'features.dart')).existsSync();
 
-  /// Computes the three app-wiring file rewrites in memory, keyed by path.
+  /// Computes all app-wiring file rewrites in memory, keyed by path.
   ///
   /// Pure: it only reads and transforms, never writes. A missing marker makes
   /// the relevant transform throw [FeatureWiringException], which is how the
@@ -210,28 +298,38 @@ class AddFeatureCommand extends Command<int> {
     final pubspec = p.join(root, 'pubspec.yaml');
     final injection = p.join(root, 'lib', 'app', 'di', 'injection.dart');
     final features = p.join(root, 'lib', 'app', 'features.dart');
+    final layering = p.join(
+      root,
+      'test',
+      'architecture',
+      'package_layering_test.dart',
+    );
     return {
       pubspec: addFeatureToPubspec(File(pubspec).readAsStringSync(), names),
-      injection:
-          addFeatureToInjection(File(injection).readAsStringSync(), names),
+      injection: addFeatureToInjection(
+        File(injection).readAsStringSync(),
+        names,
+      ),
       features: addFeatureToFeatures(File(features).readAsStringSync(), names),
+      layering: addFeatureToLayeringTest(
+        File(layering).readAsStringSync(),
+        names,
+      ),
     };
   }
 
-  void _rollback(String featureDir) {
-    final dir = Directory(featureDir);
-    if (dir.existsSync()) dir.deleteSync(recursive: true);
-  }
-
-  Future<bool> _runCodegen(String root) async {
+  Future<bool> _runCodegen(String root, String featureDir) async {
     final useFvm = File(p.join(root, '.fvmrc')).existsSync() && _hasFvm();
 
     final pubGet = _logger.progress('Resolving dependencies (pub get)');
-    final pubResult = await Process.run(
-      useFvm ? 'fvm' : 'flutter',
-      [if (useFvm) 'flutter', 'pub', 'get'],
-      workingDirectory: root,
-    );
+    final pubResult = await _processExecutor(
+        useFvm ? 'fvm' : 'flutter',
+        [
+          if (useFvm) 'flutter',
+          'pub',
+          'get',
+        ],
+        workingDirectory: root);
     if (pubResult.exitCode != 0) {
       pubGet.fail('pub get failed');
       _logger.err(pubResult.stderr as String);
@@ -239,32 +337,93 @@ class AddFeatureCommand extends Command<int> {
     }
     pubGet.complete('Dependencies resolved');
 
-    // Delegate to the project's own codegen entrypoint: a feature's
-    // di.module.dart is only generated by build_runner running *inside* its
-    // package, which tool/codegen.sh does (each feature first, then the app
-    // root). Run it under `fvm exec` so the pinned SDK is on PATH.
-    final script = p.join('tool', 'codegen.sh');
-    if (!File(p.join(root, script)).existsSync()) {
-      _logger.warn(
-        'tool/codegen.sh not found — generate code yourself before building.',
+    // Build the new feature plus any feature left without a generated
+    // micro-package module by an earlier --no-codegen run, then refresh the app
+    // DI graph. Unrelated workspace packages are left untouched.
+    final featureTargets = _pendingFeatureCodegenTargets(root, featureDir);
+    for (final target in <(String, String)>[
+      for (final path in featureTargets)
+        (path, 'feature package ${p.basename(path)}'),
+      (root, 'app DI graph'),
+    ]) {
+      final codegen = _logger.progress('Generating ${target.$2}');
+      final codegenResult = await _processExecutor(
+        useFvm ? 'fvm' : 'dart',
+        [
+          if (useFvm) 'dart',
+          'run',
+          'build_runner',
+          'build',
+          '--delete-conflicting-outputs',
+        ],
+        workingDirectory: target.$1,
       );
-      return true;
+      if (codegenResult.exitCode != 0) {
+        codegen.fail('${target.$2} generation failed');
+        _logger
+          ..err(codegenResult.stderr as String)
+          ..warn(codegenResult.stdout as String);
+        return false;
+      }
+      codegen.complete('${target.$2} generated');
     }
+    return true;
+  }
 
-    final codegen = _logger.progress('Generating code (tool/codegen.sh)');
-    final codegenResult = await Process.run(
-      useFvm ? 'fvm' : 'bash',
-      [if (useFvm) 'exec', if (useFvm) 'bash', script],
-      workingDirectory: root,
-    );
-    if (codegenResult.exitCode != 0) {
-      codegen.fail('codegen failed');
-      _logger
-        ..err(codegenResult.stderr as String)
-        ..warn(codegenResult.stdout as String);
-      return false;
+  List<String> _pendingFeatureCodegenTargets(
+    String root,
+    String featureDir,
+  ) {
+    final targets = <String>{featureDir};
+    final features = Directory(p.join(root, 'packages', 'features'));
+    if (features.existsSync()) {
+      for (final entity in features.listSync(followLinks: false)) {
+        if (entity is! Directory) continue;
+        final anchor = File(p.join(entity.path, 'lib', 'src', 'di.dart'));
+        final module =
+            File(p.join(entity.path, 'lib', 'src', 'di.module.dart'));
+        if (anchor.existsSync() && !module.existsSync()) {
+          targets.add(entity.path);
+        }
+      }
     }
-    codegen.complete('Code generated');
+    return targets.toList()..sort();
+  }
+
+  void _deleteFeatureDirectory(String featureDir) {
+    final directory = Directory(featureDir);
+    if (directory.existsSync()) directory.deleteSync(recursive: true);
+  }
+
+  Future<bool> _verifyProject(String root) async {
+    final useFvm = File(p.join(root, '.fvmrc')).existsSync() && _hasFvm();
+    for (final check in <(String, List<String>, String)>[
+      (
+        useFvm ? 'fvm' : 'flutter',
+        [if (useFvm) 'flutter', 'analyze'],
+        'analysis',
+      ),
+      (
+        useFvm ? 'fvm' : 'flutter',
+        [if (useFvm) 'flutter', 'test'],
+        'tests',
+      ),
+    ]) {
+      final progress = _logger.progress('Verifying ${check.$3}');
+      final result = await _processExecutor(
+        check.$1,
+        check.$2,
+        workingDirectory: root,
+      );
+      if (result.exitCode != 0) {
+        progress.fail('${check.$3} failed');
+        _logger
+          ..err(result.stderr as String)
+          ..warn(result.stdout as String);
+        return false;
+      }
+      progress.complete('${check.$3} passed');
+    }
     return true;
   }
 

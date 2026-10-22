@@ -9,6 +9,8 @@ void main() {
       expect(names.pascal, 'Settings');
       expect(names.camel, 'settings');
       expect(names.kebab, 'settings');
+      expect(names.routeName, 'feature-settings');
+      expect(names.detailsRouteName, 'feature-settings-details');
       expect(names.packageModule, 'FeatureSettingsPackageModule');
     });
 
@@ -18,6 +20,7 @@ void main() {
       expect(names.pascal, 'MyCoolFeature');
       expect(names.camel, 'myCoolFeature');
       expect(names.kebab, 'my-cool-feature');
+      expect(names.routeName, 'feature-my-cool-feature');
       expect(names.packageModule, 'FeatureMyCoolFeaturePackageModule');
     });
   });

@@ -29,6 +29,12 @@ class FeatureNames {
   /// kebab-case form used in the route path, e.g. `my-feature`.
   String get kebab => snake.replaceAll('_', '-');
 
+  /// Stable, globally unique route name for the feature root.
+  String get routeName => 'feature-$kebab';
+
+  /// Stable route name for the generated nested details page.
+  String get detailsRouteName => '$routeName-details';
+
   /// The injectable micro-package module type, e.g. `FeatureMyFeaturePackageModule`.
   String get packageModule => 'Feature${pascal}PackageModule';
 }

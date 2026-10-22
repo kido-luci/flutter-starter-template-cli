@@ -13,10 +13,7 @@ void main() {
           '    runs-on: ubuntu-latest\n'
           '  # fst:template-only:end\n'
           '  build:\n';
-      expect(
-        removeTemplateOnlyRegions(src),
-        equals('jobs:\n  build:\n'),
-      );
+      expect(removeTemplateOnlyRegions(src), equals('jobs:\n  build:\n'));
     });
 
     test('removes several blocks in one file', () {
@@ -48,9 +45,9 @@ void main() {
         ..writeAsStringSync(content);
     }
 
-    String read(String relative) =>
-        File(p.join(dir.path, p.joinAll(relative.split('/'))))
-            .readAsStringSync();
+    String read(String relative) => File(
+          p.join(dir.path, p.joinAll(relative.split('/'))),
+        ).readAsStringSync();
 
     setUp(() {
       dir = Directory.systemTemp.createTempSync('fst_template_only_test_');

@@ -14,9 +14,9 @@ void main() {
         ..writeAsStringSync(content);
     }
 
-    String read(String relative) =>
-        File(p.join(dir.path, p.joinAll(relative.split('/'))))
-            .readAsStringSync();
+    String read(String relative) => File(
+          p.join(dir.path, p.joinAll(relative.split('/'))),
+        ).readAsStringSync();
 
     bool exists(String relative) =>
         File(p.join(dir.path, p.joinAll(relative.split('/')))).existsSync();
@@ -139,17 +139,19 @@ void main() {
       expect(impl, contains('UnknownFailure'));
     });
 
-    test('writes firebase_auth_module.dart with @module and @lazySingleton',
-        () async {
-      await applyFirebaseAuthProvider(dir.path);
+    test(
+      'writes firebase_auth_module.dart with @module and @lazySingleton',
+      () async {
+        await applyFirebaseAuthProvider(dir.path);
 
-      final module = read(
-        'packages/features/auth/lib/src/data/firebase_auth_module.dart',
-      );
-      expect(module, contains('@module'));
-      expect(module, contains('@lazySingleton'));
-      expect(module, contains('FirebaseAuth.instance'));
-    });
+        final module = read(
+          'packages/features/auth/lib/src/data/firebase_auth_module.dart',
+        );
+        expect(module, contains('@module'));
+        expect(module, contains('@lazySingleton'));
+        expect(module, contains('FirebaseAuth.instance'));
+      },
+    );
 
     test('deletes REST-only data-layer files', () async {
       await applyFirebaseAuthProvider(dir.path);
@@ -173,9 +175,7 @@ void main() {
         isFalse,
       );
       expect(
-        exists(
-          'packages/features/auth/lib/src/data/models/auth_user_dto.dart',
-        ),
+        exists('packages/features/auth/lib/src/data/models/auth_user_dto.dart'),
         isFalse,
       );
       expect(
@@ -210,27 +210,29 @@ void main() {
       );
     });
 
-    test('rewrites pubspec.yaml: removes REST deps, adds firebase_auth',
-        () async {
-      await applyFirebaseAuthProvider(dir.path);
+    test(
+      'rewrites pubspec.yaml: removes REST deps, adds firebase_auth',
+      () async {
+        await applyFirebaseAuthProvider(dir.path);
 
-      final pubspec = read('packages/features/auth/pubspec.yaml');
-      expect(pubspec, contains('firebase_auth: ^6.1.0'));
-      // REST-only deps removed.
-      expect(pubspec, isNot(contains('network: ^0.1.0')));
-      expect(pubspec, isNot(contains('storage: ^0.1.0')));
-      expect(pubspec, isNot(contains('retrofit_generator')));
-      expect(pubspec, isNot(contains('json_serializable')));
-      expect(pubspec, isNot(contains('json_annotation')));
-      // freezed_annotation + freezed stay: presentation blocs use them.
-      expect(pubspec, contains('freezed_annotation'));
-      expect(pubspec, contains('freezed:'));
-      // Other non-REST deps must survive.
-      expect(pubspec, contains('injectable: ^3.0.0'));
-      expect(pubspec, contains('flutter_bloc: ^9.1.1'));
-      expect(pubspec, contains('build_runner: ^2.15.0'));
-      expect(pubspec, contains('injectable_generator: ^3.0.2'));
-    });
+        final pubspec = read('packages/features/auth/pubspec.yaml');
+        expect(pubspec, contains('firebase_auth: ^6.1.0'));
+        // REST-only deps removed.
+        expect(pubspec, isNot(contains('network: ^0.1.0')));
+        expect(pubspec, isNot(contains('storage: ^0.1.0')));
+        expect(pubspec, isNot(contains('retrofit_generator')));
+        expect(pubspec, isNot(contains('json_serializable')));
+        expect(pubspec, isNot(contains('json_annotation')));
+        // freezed_annotation + freezed stay: presentation blocs use them.
+        expect(pubspec, contains('freezed_annotation'));
+        expect(pubspec, contains('freezed:'));
+        // Other non-REST deps must survive.
+        expect(pubspec, contains('injectable: ^3.0.0'));
+        expect(pubspec, contains('flutter_bloc: ^9.1.1'));
+        expect(pubspec, contains('build_runner: ^2.15.0'));
+        expect(pubspec, contains('injectable_generator: ^3.0.2'));
+      },
+    );
 
     test('is idempotent', () async {
       await applyFirebaseAuthProvider(dir.path);

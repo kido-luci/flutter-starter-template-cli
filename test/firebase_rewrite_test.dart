@@ -56,9 +56,11 @@ void main() {
       );
       expect(
         result,
-        equals('  /// Rewritten at the `// fst:analytics-impl` marker.\n'
-            '  AnalyticsService provideAnalyticsService() =>\n'
-            '      const NoOpAnalyticsService(); // fst:analytics-impl\n'),
+        equals(
+          '  /// Rewritten at the `// fst:analytics-impl` marker.\n'
+          '  AnalyticsService provideAnalyticsService() =>\n'
+          '      const NoOpAnalyticsService(); // fst:analytics-impl\n',
+        ),
       );
     });
 
@@ -84,9 +86,11 @@ void main() {
       );
       expect(
         result,
-        equals('  /// Rewritten at the `// fst:crash-impl` marker.\n'
-            '  CrashReporter provideCrashReporter() => '
-            'const NoOpCrashReporter(); // fst:crash-impl\n'),
+        equals(
+          '  /// Rewritten at the `// fst:crash-impl` marker.\n'
+          '  CrashReporter provideCrashReporter() => '
+          'const NoOpCrashReporter(); // fst:crash-impl\n',
+        ),
       );
     });
 
@@ -123,7 +127,9 @@ void main() {
           "import 'package:injectable/injectable.dart';\n";
       expect(
         removeImportLine(
-            src, 'package:firebase_analytics/firebase_analytics.dart'),
+          src,
+          'package:firebase_analytics/firebase_analytics.dart',
+        ),
         equals("import 'package:injectable/injectable.dart';\n"),
       );
     });
@@ -134,7 +140,9 @@ void main() {
           "import 'package:firebase_analytics/firebase_analytics.dart' as fa;\n";
       expect(
         removeImportLine(
-            src, 'package:firebase_analytics/firebase_analytics.dart'),
+          src,
+          'package:firebase_analytics/firebase_analytics.dart',
+        ),
         equals(src),
       );
     });
@@ -143,8 +151,10 @@ void main() {
       const src = "import 'package:injectable/injectable.dart';\n";
       final once = removeImportLine(src, 'package:firebase_analytics/x.dart');
       expect(once, equals(src));
-      expect(removeImportLine(once, 'package:firebase_analytics/x.dart'),
-          equals(src));
+      expect(
+        removeImportLine(once, 'package:firebase_analytics/x.dart'),
+        equals(src),
+      );
     });
   });
 
@@ -161,11 +171,13 @@ void main() {
     test('removes the three Firebase plugins, keeps the rest', () {
       expect(
         removeFirebaseGradlePlugins(gradle),
-        equals('plugins {\n'
-            '    id("com.android.application")\n'
-            '    id("kotlin-android")\n'
-            '    id("dev.flutter.flutter-gradle-plugin")\n'
-            '}\n'),
+        equals(
+          'plugins {\n'
+          '    id("com.android.application")\n'
+          '    id("kotlin-android")\n'
+          '    id("dev.flutter.flutter-gradle-plugin")\n'
+          '}\n',
+        ),
       );
     });
 
@@ -191,9 +203,9 @@ void main() {
       file.writeAsStringSync(content);
     }
 
-    String read(String relative) =>
-        File(p.join(dir.path, p.joinAll(relative.split('/'))))
-            .readAsStringSync();
+    String read(String relative) => File(
+          p.join(dir.path, p.joinAll(relative.split('/'))),
+        ).readAsStringSync();
 
     bool exists(String relative) =>
         File(p.join(dir.path, p.joinAll(relative.split('/')))).existsSync();
@@ -212,10 +224,43 @@ void main() {
             '// fst:analytics-impl\n',
       );
       write(
+        'packages/analytics/pubspec.yaml',
+        'dependencies:\n'
+            '  architecture: ^0.1.0\n'
+            '  # fst:firebase:start\n'
+            '  firebase_analytics: ^12.4.5\n'
+            '  # fst:firebase:end\n'
+            '  injectable: ^3.0.0\n',
+      );
+      write(
+        'packages/analytics/lib/src/analytics_service.dart',
+        '// fst:firebase:start\n'
+            "import 'package:firebase_analytics/firebase_analytics.dart';\n"
+            "import 'package:flutter/foundation.dart';\n"
+            '// fst:firebase:end\n'
+            'abstract class AnalyticsService {}\n'
+            '// fst:firebase:start\n'
+            'class FirebaseAnalyticsService implements AnalyticsService {}\n'
+            '// fst:firebase:end\n'
+            'class NoOpAnalyticsService implements AnalyticsService {}\n',
+      );
+      write(
         'packages/app_platform/lib/src/crash/crash_module.dart',
         '  /// Rewritten at the `// fst:crash-impl` marker.\n'
             '  CrashReporter provideCrashReporter() => '
             'FirebaseCrashReporter(); // fst:crash-impl\n',
+      );
+      write(
+        'packages/network/lib/src/performance_module.dart',
+        "import 'package:firebase_performance/firebase_performance.dart';\n"
+            "import 'package:injectable/injectable.dart';\n"
+            '\n'
+            "import 'performance_tracker.dart';\n"
+            '\n'
+            '  /// Rewritten at the `// fst:performance-impl` marker.\n'
+            '  PerformanceTracker providePerformance() =>\n'
+            '      FirebasePerformanceTracker(FirebasePerformance.instance); '
+            '// fst:performance-impl\n',
       );
       write(
         'android/app/build.gradle.kts',
@@ -225,6 +270,17 @@ void main() {
             '    id("com.google.firebase.crashlytics")\n'
             '    id("dev.flutter.flutter-gradle-plugin")\n'
             '}\n',
+      );
+      write(
+        'android/app/src/main/AndroidManifest.xml',
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+            '    <application>\n'
+            '        <!-- fst:firebase-provider-removal -->\n'
+            '        <meta-data\n'
+            '            android:name="firebase_messaging_auto_init_enabled"\n'
+            '            android:value="true" />\n'
+            '    </application>\n'
+            '</manifest>\n',
       );
       write('android/app/google-services.json', '{}');
       write('ios/Runner/GoogleService-Info.plist', '<plist></plist>');
@@ -246,44 +302,109 @@ void main() {
 
     tearDown(() => dir.deleteSync(recursive: true));
 
-    test('flips the flag, swaps bindings, strips gradle, deletes native',
-        () async {
-      await disableFirebase(dir.path);
+    test(
+      'flips the flag, swaps bindings, strips gradle, deletes native',
+      () async {
+        await disableFirebase(dir.path);
 
-      expect(
-          read('lib/app/firebase.dart'), contains('kFirebaseEnabled = false'));
-      final analyticsModule =
-          read('packages/analytics/lib/src/analytics_module.dart');
-      expect(analyticsModule,
-          contains('const NoOpAnalyticsService(); // fst:analytics-impl'));
-      // The swapped-in no-op leaves nothing referencing FirebaseAnalytics, so
-      // the import must go too or the scaffold trips `unused_import`.
-      expect(analyticsModule, isNot(contains('firebase_analytics')));
-      expect(analyticsModule, contains('injectable'));
-      expect(read('packages/app_platform/lib/src/crash/crash_module.dart'),
-          contains('const NoOpCrashReporter(); // fst:crash-impl'));
+        expect(
+          read('lib/app/firebase.dart'),
+          contains('kFirebaseEnabled = false'),
+        );
+        final analyticsModule = read(
+          'packages/analytics/lib/src/analytics_module.dart',
+        );
+        expect(
+          analyticsModule,
+          contains('const NoOpAnalyticsService(); // fst:analytics-impl'),
+        );
+        // The swapped-in no-op leaves nothing referencing FirebaseAnalytics, so
+        // the import must go too or the scaffold trips `unused_import`.
+        expect(analyticsModule, isNot(contains('firebase_analytics')));
+        expect(analyticsModule, contains('injectable'));
+        expect(
+          read('packages/analytics/pubspec.yaml'),
+          isNot(contains('firebase_analytics')),
+        );
+        final analyticsService = read(
+          'packages/analytics/lib/src/analytics_service.dart',
+        );
+        expect(analyticsService, isNot(contains('firebase_analytics')));
+        expect(analyticsService, isNot(contains('flutter/foundation.dart')));
+        expect(analyticsService, isNot(contains('FirebaseAnalyticsService')));
+        expect(analyticsService, contains('NoOpAnalyticsService'));
+        expect(
+          read('packages/app_platform/lib/src/crash/crash_module.dart'),
+          contains('const NoOpCrashReporter(); // fst:crash-impl'),
+        );
+        final performanceModule = read(
+          'packages/network/lib/src/performance_module.dart',
+        );
+        expect(
+          performanceModule,
+          contains('const NoOpPerformanceTracker(); // fst:performance-impl'),
+        );
+        expect(performanceModule, isNot(contains('firebase_performance')));
+        expect(performanceModule, contains('injectable'));
+        expect(performanceModule, contains('performance_tracker.dart'));
 
-      final gradle = read('android/app/build.gradle.kts');
-      expect(gradle, isNot(contains('google-services')));
-      expect(gradle, isNot(contains('crashlytics')));
-      expect(gradle, contains('dev.flutter.flutter-gradle-plugin'));
+        final gradle = read('android/app/build.gradle.kts');
+        expect(gradle, isNot(contains('google-services')));
+        expect(gradle, isNot(contains('firebase-perf')));
+        expect(gradle, isNot(contains('crashlytics')));
+        expect(gradle, contains('dev.flutter.flutter-gradle-plugin'));
 
-      expect(exists('android/app/google-services.json'), isFalse);
-      expect(exists('ios/Runner/GoogleService-Info.plist'), isFalse);
+        final manifest = read('android/app/src/main/AndroidManifest.xml');
+        expect(manifest, contains('xmlns:tools='));
+        expect(
+          manifest,
+          contains('com.google.firebase.provider.FirebaseInitProvider'),
+        );
+        expect(
+          manifest,
+          contains('FlutterFirebaseMessagingInitProvider'),
+        );
+        expect(manifest, contains('tools:node="remove"'));
+        expect(manifest, contains('android:value="false"'));
 
-      // Deleting the plist is not enough: Xcode fails the build on a missing
-      // input, so the project must stop referencing it too.
-      final pbxproj = read('ios/Runner.xcodeproj/project.pbxproj');
-      expect(pbxproj, isNot(contains('GoogleService-Info')));
-      expect(pbxproj, contains('Runner.app'));
+        expect(exists('android/app/google-services.json'), isFalse);
+        expect(exists('ios/Runner/GoogleService-Info.plist'), isFalse);
 
-      // And the CI step that fabricated a placeholder for that reference goes
-      // with it.
-      final ci = read('.github/workflows/ci.yml');
-      expect(ci, isNot(contains('Generate placeholder')));
-      expect(ci, contains('- name: Build'));
-      expect(exists('firebase.json'), isFalse);
-    });
+        // Deleting the plist is not enough: Xcode fails the build on a missing
+        // input, so the project must stop referencing it too.
+        final pbxproj = read('ios/Runner.xcodeproj/project.pbxproj');
+        expect(pbxproj, isNot(contains('GoogleService-Info')));
+        expect(pbxproj, contains('Runner.app'));
+
+        // And the CI step that fabricated a placeholder for that reference goes
+        // with it.
+        final ci = read('.github/workflows/ci.yml');
+        expect(ci, isNot(contains('Generate placeholder')));
+        expect(ci, contains('- name: Build'));
+        expect(exists('firebase.json'), isFalse);
+      },
+    );
+
+    test(
+      'throws FirebaseRewriteException when performance_module.dart is missing',
+      () async {
+        File(
+          p.join(
+            dir.path,
+            'packages',
+            'network',
+            'lib',
+            'src',
+            'performance_module.dart',
+          ),
+        ).deleteSync();
+
+        await expectLater(
+          disableFirebase(dir.path),
+          throwsA(isA<FirebaseRewriteException>()),
+        );
+      },
+    );
   });
 
   _iosBuildInputTests();
@@ -356,6 +477,32 @@ void _keepFirebaseTests() {
     tearDown(() => dir.deleteSync(recursive: true));
 
     test('clears the markers and keeps every step', () async {
+      final analyticsPubspec = File(
+        p.join(dir.path, 'packages', 'analytics', 'pubspec.yaml'),
+      )
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(
+          'dependencies:\n'
+          '  # fst:firebase:start\n'
+          '  firebase_analytics: ^12.4.5\n'
+          '  # fst:firebase:end\n',
+        );
+      final analyticsService = File(
+        p.join(
+          dir.path,
+          'packages',
+          'analytics',
+          'lib',
+          'src',
+          'analytics_service.dart',
+        ),
+      )
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(
+          '// fst:firebase:start\n'
+          'class FirebaseAnalyticsService {}\n'
+          '// fst:firebase:end\n',
+        );
       File(ciPath())
         ..parent.createSync(recursive: true)
         ..writeAsStringSync(
@@ -372,6 +519,18 @@ void _keepFirebaseTests() {
       expect(ci, isNot(contains('fst:firebase')));
       expect(ci, contains('Generate placeholder google-services.json'));
       expect(ci, contains('- name: Build'));
+      expect(
+          analyticsPubspec.readAsStringSync(), contains('firebase_analytics'));
+      expect(
+          analyticsPubspec.readAsStringSync(), isNot(contains('fst:firebase')));
+      expect(
+        analyticsService.readAsStringSync(),
+        contains('FirebaseAnalyticsService'),
+      );
+      expect(
+        analyticsService.readAsStringSync(),
+        isNot(contains('fst:firebase')),
+      );
     });
 
     test('is a no-op when there is no workflow', () async {

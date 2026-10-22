@@ -6,6 +6,7 @@ import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as p;
 
 import '../config_resolver.dart';
+import '../create_compatibility.dart';
 import '../project_config.dart';
 import '../rewrite/auth.dart';
 import '../rewrite/auth_provider.dart';
@@ -13,12 +14,14 @@ import '../rewrite/backend.dart';
 import '../rewrite/branding.dart';
 import '../rewrite/clean_slate.dart';
 import '../rewrite/database.dart';
+import '../rewrite/documents.dart';
 import '../rewrite/e2e.dart';
 import '../rewrite/env.dart';
 import '../rewrite/features.dart';
 import '../rewrite/firebase.dart';
 import '../rewrite/icon.dart';
 import '../rewrite/local_template.dart';
+import '../rewrite/lockfile.dart';
 import '../rewrite/rewriter.dart';
 import '../rewrite/template_only.dart';
 import '../validators.dart';
@@ -42,10 +45,7 @@ class CreateCommand extends Command<int> {
         'bundle-id',
         help: 'Bundle / App ID, reverse-DNS (skips the prompt).',
       )
-      ..addOption(
-        'org',
-        help: 'Organisation / author (skips the prompt).',
-      )
+      ..addOption('org', help: 'Organisation / author (skips the prompt).')
       ..addOption(
         'output-dir',
         abbr: 'o',
@@ -67,8 +67,8 @@ class CreateCommand extends Command<int> {
         'backend',
         defaultsTo: true,
         help: 'Include the backend pillar (default). Use --no-backend to '
-            'scaffold a fully local-only app: no network, no sync, no auth, '
-            'no server-backed demo features.',
+            'remove sync and server-backed demo features. Auth defaults off; '
+            'pass --auth to retain the JWT client and auth screens.',
       )
       ..addFlag(
         'minimal',
@@ -76,6 +76,19 @@ class CreateCommand extends Command<int> {
         help: 'Scaffold the smallest possible app: no backend, no Firebase, '
             'no auth, no server-backed demo features. Equivalent to '
             '--no-backend --no-firebase.',
+      )
+      ..addFlag(
+        'document-engine',
+        defaultsTo: true,
+        help: 'Include the reusable Document Engine package (default). '
+            'Disabling it also removes Document Center and the document-backed '
+            'bookmarks/collections demo features.',
+      )
+      ..addFlag(
+        'document-center',
+        defaultsTo: true,
+        help: 'Include the Document Center feature (default). Requires '
+            'Document Engine. Use --no-document-center for the engine only.',
       )
       ..addMultiOption(
         'exclude-feature',
@@ -200,9 +213,24 @@ class CreateCommand extends Command<int> {
 
     final useFirebase = _resolveFirebase(yes: yes, forceDisabled: minimal);
 
-    // --no-backend (or --minimal) implies --no-auth.
+    // --no-backend defaults to no auth, but an explicit --auth retains the JWT
+    // client. --minimal is the only mode that unconditionally removes auth.
     final useBackend = _resolveBackend(yes: yes, forceDisabled: minimal);
-    final useAuth = _resolveAuth(yes: yes, forceDisabled: !useBackend);
+    final useAuth = _resolveAuth(
+      yes: yes,
+      forceDisabled: minimal,
+      defaultDisabled: !useBackend,
+    );
+
+    final useDocumentEngine = _resolveDocumentEngine(
+      yes: yes,
+      forceDisabled: minimal,
+    );
+    final useDocumentCenter = _resolveDocumentCenter(
+      yes: yes,
+      engineEnabled: useDocumentEngine,
+      forceDisabled: minimal,
+    );
 
     final authProvider = _resolveAuthProvider(
       yes: yes,
@@ -210,14 +238,43 @@ class CreateCommand extends Command<int> {
       useAuth: useAuth,
       useBackend: useBackend,
     );
-    if (authProvider == null) return 1;
+
+    final compatibilityError = validateCreateCompatibility(
+      minimal: minimal,
+      useFirebase: useFirebase,
+      useBackend: useBackend,
+      useAuth: useAuth,
+      authProvider: authProvider,
+      firebaseExplicitlyEnabled: (argResults?.wasParsed('firebase') ?? false) &&
+          (argResults?['firebase'] as bool? ?? false),
+      backendExplicitlyEnabled: (argResults?.wasParsed('backend') ?? false) &&
+          (argResults?['backend'] as bool? ?? false),
+      authExplicitlyEnabled: (argResults?.wasParsed('auth') ?? false) &&
+          (argResults?['auth'] as bool? ?? false),
+      authProviderWasParsed: argResults?.wasParsed('auth-provider') ?? false,
+      apiUrlWasParsed: argResults?.wasParsed('api-url') ?? false,
+      useDocumentEngine: useDocumentEngine,
+      useDocumentCenter: useDocumentCenter,
+      documentEngineExplicitlyEnabled:
+          (argResults?.wasParsed('document-engine') ?? false) &&
+              (argResults?['document-engine'] as bool? ?? false),
+      documentCenterExplicitlyEnabled:
+          (argResults?.wasParsed('document-center') ?? false) &&
+              (argResults?['document-center'] as bool? ?? false),
+    );
+    if (compatibilityError != null) {
+      _logger.err(compatibilityError);
+      return 1;
+    }
 
     final database = _resolveDatabase(yes: yes);
 
+    final forcedExclusions = <String>{
+      if (!useBackend) ...removableFeatures,
+    };
     final excludedFeatures = _resolveExcludedFeatures(
       yes: yes,
-      // --no-backend forces exclusion of all server-backed demo features.
-      forcedExclusions: useBackend ? const {} : removableFeatures,
+      forcedExclusions: forcedExclusions,
     );
     if (excludedFeatures == null) return 1;
 
@@ -257,17 +314,20 @@ class CreateCommand extends Command<int> {
     _logger.info(
       '  Auth           ${lightCyan.wrap(useAuth ? 'enabled' : 'disabled')}',
     );
+    _logger.info('  Auth provider  ${lightCyan.wrap(authProvider)}');
+    _logger.info('  Database       ${lightCyan.wrap(database)}');
     _logger.info(
-      '  Auth provider  ${lightCyan.wrap(authProvider)}',
+      '  Document engine ${lightCyan.wrap(useDocumentEngine ? 'enabled' : 'disabled')}',
     );
     _logger.info(
-      '  Database       ${lightCyan.wrap(database)}',
+      '  Document center ${lightCyan.wrap(useDocumentCenter ? 'enabled' : 'disabled')}',
     );
     if (excludedFeatures.isNotEmpty) {
       _logger.info(
         '  Exclude        ${lightCyan.wrap(excludedFeatures.join(', '))}',
       );
     }
+
     if (api.url != null) {
       _logger.info('  API base URL   ${lightCyan.wrap(api.url!)}');
     }
@@ -329,16 +389,13 @@ class CreateCommand extends Command<int> {
       }
     } else {
       final cloneProgress = _logger.progress('Cloning template');
-      final cloneResult = await Process.run(
-        'git',
-        [
-          'clone',
-          '--recurse-submodules',
-          '--depth=1',
-          _templateRepo,
-          outputDir,
-        ],
-      );
+      final cloneResult = await Process.run('git', [
+        'clone',
+        '--recurse-submodules',
+        '--depth=1',
+        _templateRepo,
+        outputDir,
+      ]);
       if (cloneResult.exitCode != 0) {
         cloneProgress.fail('Clone failed');
         _logger.err(cloneResult.stderr as String);
@@ -366,8 +423,11 @@ class CreateCommand extends Command<int> {
     final rewriteProgress = _logger.progress('Renaming template identifiers');
     try {
       await rewriteProject(outputDir, config);
-      await _writeProjectReadme(outputDir, config,
-          firebaseEnabled: useFirebase);
+      await _writeProjectReadme(
+        outputDir,
+        config,
+        firebaseEnabled: useFirebase,
+      );
       rewriteProgress.complete('Identifiers renamed');
     } catch (e) {
       rewriteProgress.fail('Rewrite failed');
@@ -421,8 +481,9 @@ class CreateCommand extends Command<int> {
     // Runs only when auth is kept AND the user selected firebase. Must run
     // AFTER disableAuth (which is skipped) and BEFORE excludeFeatures/setup.
     if (useAuth && authProvider == 'firebase') {
-      final providerProgress =
-          _logger.progress('Switching auth provider to Firebase Auth');
+      final providerProgress = _logger.progress(
+        'Switching auth provider to Firebase Auth',
+      );
       try {
         await applyFirebaseAuthProvider(outputDir);
         providerProgress.complete('Firebase Auth provider applied');
@@ -439,7 +500,7 @@ class CreateCommand extends Command<int> {
     if (!useBackend) {
       final backendProgress = _logger.progress('Removing backend pillar');
       try {
-        await disableBackend(outputDir);
+        await disableBackend(outputDir, preserveNetwork: useAuth);
         backendProgress.complete('Backend pillar removed');
       } catch (e) {
         backendProgress.fail('Removing backend pillar failed');
@@ -460,11 +521,7 @@ class CreateCommand extends Command<int> {
             : 'Switching database to $database',
       );
       try {
-        await swapDatabase(
-          outputDir,
-          choice: database,
-          useBackend: useBackend,
-        );
+        await swapDatabase(outputDir, choice: database, useBackend: useBackend);
         dbProgress.complete(
           database == 'objectbox'
               ? 'Database scaffold finalized'
@@ -500,10 +557,35 @@ class CreateCommand extends Command<int> {
         'Removing features: ${excludedFeatures.join(', ')}',
       );
       try {
-        await excludeFeatures(outputDir, excludedFeatures);
+        await excludeFeatures(
+          outputDir,
+          excludedFeatures,
+          includeDocumentCenter: useDocumentCenter,
+        );
         featureProgress.complete('Features removed');
       } catch (e) {
         featureProgress.fail('Removing features failed');
+        _logger.err('$e');
+        return 1;
+      }
+    }
+
+    // ── 5c1. Apply optional document packages ───────────────────────────────
+    // Stripping the engine also removes optional document import capabilities
+    // from bookmarks and collections without having to exclude the features themselves.
+    if (!useDocumentEngine || !useDocumentCenter) {
+      final documentProgress = _logger.progress(
+        'Applying optional document package selection',
+      );
+      try {
+        await configureDocuments(
+          outputDir,
+          includeEngine: useDocumentEngine,
+          includeCenter: useDocumentCenter,
+        );
+        documentProgress.complete('Document package selection applied');
+      } catch (e) {
+        documentProgress.fail('Document package selection failed');
         _logger.err('$e');
         return 1;
       }
@@ -533,8 +615,9 @@ class CreateCommand extends Command<int> {
     // directories and no .gitmodules, so `git submodule update --init` exits 1
     // and fails every job it appears in.
     {
-      final templateProgress =
-          _logger.progress('Removing template-only CI scaffolding');
+      final templateProgress = _logger.progress(
+        'Removing template-only CI scaffolding',
+      );
       try {
         await stripTemplateOnly(outputDir);
         templateProgress.complete('Template-only CI scaffolding removed');
@@ -574,6 +657,22 @@ class CreateCommand extends Command<int> {
       }
     }
 
+    // ── 5e. Rebuild and enforce the application lockfile ────────────────────
+    // Every shape mutation above can change the workspace graph. A generated
+    // application always ships a lockfile, including with --no-setup.
+    final lockProgress = _logger.progress('Refreshing dependency lockfile');
+    try {
+      await refreshGeneratedLockfile(
+        outputDir,
+        useFvm: File(p.join(outputDir, '.fvmrc')).existsSync() && _hasFvm(),
+      );
+      lockProgress.complete('Dependency lockfile is reproducible');
+    } catch (e) {
+      lockProgress.fail('Dependency lockfile refresh failed');
+      _logger.err('$e');
+      return 1;
+    }
+
     // ── 6. Setup ─────────────────────────────────────────────────────────────
 
     final skipSetup = argResults?['no-setup'] as bool? ?? false;
@@ -584,14 +683,18 @@ class CreateCommand extends Command<int> {
           'Running tool/setup.sh (pub get + codegen…)',
         );
         final result = await Process.run(
-          'bash',
-          [setupScript, '--no-hooks'],
-          workingDirectory: outputDir,
-        );
+            'bash',
+            [
+              setupScript,
+              '--no-hooks',
+              '--format',
+            ],
+            workingDirectory: outputDir);
         if (result.exitCode != 0) {
           setupProgress.fail('setup.sh failed');
           _logger.warn(result.stdout as String);
           _logger.err(result.stderr as String);
+          return 1;
         } else {
           setupProgress.complete('Dependencies installed & code generated');
         }
@@ -612,10 +715,13 @@ class CreateCommand extends Command<int> {
         final useFvm =
             File(p.join(outputDir, '.fvmrc')).existsSync() && _hasFvm();
         final result = await Process.run(
-          useFvm ? 'fvm' : 'dart',
-          [if (useFvm) 'dart', 'run', 'flutter_launcher_icons'],
-          workingDirectory: outputDir,
-        );
+            useFvm ? 'fvm' : 'dart',
+            [
+              if (useFvm) 'dart',
+              'run',
+              'flutter_launcher_icons',
+            ],
+            workingDirectory: outputDir);
         if (result.exitCode != 0) {
           iconProgress.fail('Icon generation failed');
           _logger.warn(result.stdout as String);
@@ -644,15 +750,16 @@ class CreateCommand extends Command<int> {
       _logger.info('');
       _logger.info('    # Point Firebase at your own project:');
       _logger.info(
-          '    dart pub global activate flutterfire_cli  # if not installed');
+        '    dart pub global activate flutterfire_cli  # if not installed',
+      );
       _logger.info('    flutterfire configure');
     } else {
       _logger.info(
         'Firebase is disabled — the app builds and runs without a Firebase '
         'project. To add it later, set kFirebaseEnabled to true in '
         'lib/app/firebase.dart, restore the Firebase tracking bindings '
-        '(// fst:analytics-impl, // fst:crash-impl), and run '
-        'flutterfire configure.',
+        '(// fst:analytics-impl, // fst:crash-impl, // fst:performance-impl), '
+        'and run flutterfire configure.',
       );
       _logger.info('');
       _logger.info('  Next steps:');
@@ -660,8 +767,9 @@ class CreateCommand extends Command<int> {
     }
 
     _logger.info('');
-    _logger
-        .info('    # Make your first commit (a fresh git repo was created):');
+    _logger.info(
+      '    # Make your first commit (a fresh git repo was created):',
+    );
     _logger.info('    git add -A && git commit -m "Initial commit"');
     _logger.info('');
     _logger.info('    # Then run the app:');
@@ -701,15 +809,19 @@ class CreateCommand extends Command<int> {
   }
 
   /// Resolves whether to include the auth pillar. An explicit
-  /// `--auth`/`--no-auth` wins; [forceDisabled] (set when `--no-backend` is
-  /// active, since a local-only app has no server for JWT) overrides to false
-  /// without prompting. Otherwise non-interactive runs default to on and
-  /// interactive runs prompt.
-  bool _resolveAuth({required bool yes, bool forceDisabled = false}) {
+  /// `--auth`/`--no-auth` wins unless [forceDisabled] is set by `--minimal`.
+  /// [defaultDisabled] is set for `--no-backend`: auth stays off for backward
+  /// compatibility unless the caller explicitly retains the JWT client.
+  bool _resolveAuth({
+    required bool yes,
+    bool forceDisabled = false,
+    bool defaultDisabled = false,
+  }) {
     if (forceDisabled) return false;
     if (argResults?.wasParsed('auth') ?? false) {
       return argResults?['auth'] as bool? ?? true;
     }
+    if (defaultDisabled) return false;
     if (yes) return true;
     return Confirm(
       prompt: 'Include auth (login / register)?',
@@ -717,44 +829,47 @@ class CreateCommand extends Command<int> {
     ).interact();
   }
 
+  bool _resolveDocumentEngine({
+    required bool yes,
+    bool forceDisabled = false,
+  }) {
+    if (forceDisabled) return false;
+    if (argResults?.wasParsed('document-engine') ?? false) {
+      return argResults?['document-engine'] as bool? ?? true;
+    }
+    if (yes) return true;
+    return Confirm(
+      prompt: 'Include Document Engine?',
+      defaultValue: true,
+    ).interact();
+  }
+
+  bool _resolveDocumentCenter({
+    required bool yes,
+    required bool engineEnabled,
+    bool forceDisabled = false,
+  }) {
+    if (forceDisabled || !engineEnabled) return false;
+    if (argResults?.wasParsed('document-center') ?? false) {
+      return argResults?['document-center'] as bool? ?? true;
+    }
+    if (yes) return true;
+    return Confirm(
+      prompt: 'Include Document Center?',
+      defaultValue: true,
+    ).interact();
+  }
+
   /// Resolves the auth provider. `--auth-provider` wins; interactive runs
-  /// prompt; `--yes` keeps the default (`jwt`). Returns `null` when validation
-  /// fails (the caller logs and exits non-zero).
-  ///
-  /// `firebase` is only valid when Firebase, auth, AND backend are all enabled.
-  String? _resolveAuthProvider({
+  /// prompt; `--yes` keeps the default (`jwt`). Cross-flag compatibility is
+  /// validated centrally after all pillars have been resolved.
+  String _resolveAuthProvider({
     required bool yes,
     required bool useFirebase,
     required bool useAuth,
     required bool useBackend,
   }) {
     final flag = argResults?['auth-provider'] as String? ?? 'jwt';
-    final isFirebase = flag == 'firebase';
-
-    if (isFirebase) {
-      if (!useFirebase) {
-        _logger.err(
-          '--auth-provider firebase requires Firebase to be enabled. '
-          'Remove --no-firebase (or --minimal) to use Firebase Auth.',
-        );
-        return null;
-      }
-      if (!useBackend) {
-        _logger.err(
-          '--auth-provider firebase requires the backend pillar to be enabled. '
-          'Remove --no-backend (or --minimal) to use Firebase Auth.',
-        );
-        return null;
-      }
-      if (!useAuth) {
-        _logger.err(
-          '--auth-provider firebase requires the auth pillar to be enabled. '
-          'Remove --no-auth to use Firebase Auth.',
-        );
-        return null;
-      }
-    }
-
     // If the flag was explicitly set, use it directly.
     if (argResults?.wasParsed('auth-provider') ?? false) return flag;
 
@@ -856,7 +971,8 @@ class CreateCommand extends Command<int> {
       validator: (v) {
         if (v.trim().isEmpty || isValidHttpUrl(v.trim())) return true;
         throw ValidationError(
-            'Must be an http(s) URL, e.g. https://api.acme.com');
+          'Must be an http(s) URL, e.g. https://api.acme.com',
+        );
       },
     ).interact().trim();
     return (ok: true, url: entered.isEmpty ? null : entered);
@@ -918,9 +1034,7 @@ class CreateCommand extends Command<int> {
         if (v.trim().isEmpty || validFlexSchemes.contains(v.trim())) {
           return true;
         }
-        throw ValidationError(
-          'Must be one of: ${validFlexSchemes.join(', ')}',
-        );
+        throw ValidationError('Must be one of: ${validFlexSchemes.join(', ')}');
       },
     ).interact().trim();
     return (ok: true, name: entered.isEmpty ? null : entered);
@@ -951,9 +1065,7 @@ class CreateCommand extends Command<int> {
         if (v.trim().isEmpty || normaliseSeedColor(v.trim()) != null) {
           return true;
         }
-        throw ValidationError(
-          'Must be 6 hex digits, e.g. #FF5722 or FF5722',
-        );
+        throw ValidationError('Must be 6 hex digits, e.g. #FF5722 or FF5722');
       },
     ).interact().trim();
     if (entered.isEmpty) return (ok: true, hex: null);

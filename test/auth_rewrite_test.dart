@@ -12,10 +12,7 @@ void main() {
           "import 'package:feature_auth/feature_auth.dart';\n"
           '// fst:auth:end\n'
           "import 'b';\n";
-      expect(
-        removeAuthRegions(src),
-        equals("import 'a';\nimport 'b';\n"),
-      );
+      expect(removeAuthRegions(src), equals("import 'a';\nimport 'b';\n"));
     });
 
     test('removes a YAML auth block', () {
@@ -68,10 +65,7 @@ void main() {
       const src = 'keep\n'
           '// fst:auth:start\n'
           'A\n'; // no matching :end
-      expect(
-        () => removeAuthRegions(src),
-        throwsFormatException,
-      );
+      expect(() => removeAuthRegions(src), throwsFormatException);
     });
   });
 
@@ -84,9 +78,9 @@ void main() {
         ..writeAsStringSync(content);
     }
 
-    String read(String relative) =>
-        File(p.join(dir.path, p.joinAll(relative.split('/'))))
-            .readAsStringSync();
+    String read(String relative) => File(
+          p.join(dir.path, p.joinAll(relative.split('/'))),
+        ).readAsStringSync();
 
     bool exists(String relative) =>
         File(p.join(dir.path, p.joinAll(relative.split('/')))).existsSync();
@@ -152,7 +146,18 @@ void main() {
         '// fst:auth:start\n'
             "import 'package:shared_ui/shared_ui.dart';\n"
             '// fst:auth:end\n'
-            "import 'package:flutter/material.dart';\n",
+            "import 'package:flutter/material.dart';\n"
+            'Future<void> bootstrap() async {\n'
+            '  // fst:auth:start\n'
+            '  final session = SessionScope.maybeOf(context);\n'
+            '  // fst:auth:end\n'
+            '  await Future.wait<void>([\n'
+            '    // fst:auth:start\n'
+            '    if (session != null) session.restore(),\n'
+            '    // fst:auth:end\n'
+            '    Future<void>.delayed(Duration.zero),\n'
+            '  ]);\n'
+            '}\n',
       );
 
       // profile pubspec.
@@ -231,6 +236,15 @@ void main() {
             "};\n",
       );
 
+      // test/architecture/firebase_optional_di_test.dart.
+      write(
+        'test/architecture/firebase_optional_di_test.dart',
+        '// fst:auth:start\n'
+            "import 'package:feature_auth/feature_auth.dart';\n"
+            '// fst:auth:end\n'
+            "import 'package:storage/storage.dart';\n",
+      );
+
       // auth-only part files (to be deleted).
       write(
         'packages/features/profile/lib/src/presentation/widgets/profile_header.dart',
@@ -283,6 +297,20 @@ void main() {
       final injectionDart = read('lib/app/di/injection.dart');
       expect(injectionDart, isNot(contains('feature_auth')));
       expect(injectionDart, contains('get_it'));
+
+      final firebaseOptionalDiTest = read(
+        'test/architecture/firebase_optional_di_test.dart',
+      );
+      expect(firebaseOptionalDiTest, isNot(contains('feature_auth')));
+      expect(firebaseOptionalDiTest, contains('storage'));
+
+      final splashScreen = read(
+        'packages/features/splash/lib/src/presentation/screens/'
+        'splash_screen.dart',
+      );
+      expect(splashScreen, isNot(contains('SessionScope')));
+      expect(splashScreen, isNot(contains('session.restore')));
+      expect(splashScreen, contains('Future<void>.delayed(Duration.zero)'));
     });
 
     test('deletes auth-only part files', () async {

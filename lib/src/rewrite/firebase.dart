@@ -18,13 +18,14 @@ class FirebaseRewriteException implements Exception {
 String setFirebaseEnabled(String content, {required bool enabled}) {
   final target = 'const bool kFirebaseEnabled = $enabled;';
   if (content.contains(target)) return content;
-  final other = 'const bool kFirebaseEnabled = ${!enabled};';
-  if (!content.contains(other)) {
+  final declarationPattern =
+      RegExp(r'const\s+bool\s+kFirebaseEnabled\s*=[^;]+;');
+  if (!declarationPattern.hasMatch(content)) {
     throw FirebaseRewriteException(
       'Could not find a `kFirebaseEnabled` declaration in lib/app/firebase.dart.',
     );
   }
-  return content.replaceFirst(other, target);
+  return content.replaceFirst(declarationPattern, target);
 }
 
 /// Replaces the expression on the line tagged with `// <marker>` with
@@ -85,10 +86,49 @@ String removeFirebaseGradlePlugins(String content) {
     'com.google.firebase.crashlytics',
   ];
   final lines = content.split('\n')
-    ..removeWhere(
-      (line) => firebasePluginIds.any(line.contains),
-    );
+    ..removeWhere((line) => firebasePluginIds.any(line.contains));
   return lines.join('\n');
+}
+
+/// Prevents native Firebase plugins from auto-initializing in an Android app
+/// scaffolded without Firebase configuration.
+String disableAndroidFirebaseAutoInit(String content) {
+  const marker = '<!-- fst:firebase-provider-removal -->';
+  if (!content.contains(marker)) {
+    if (content.contains('FirebaseInitProvider') &&
+        content.contains('tools:node="remove"')) {
+      return content;
+    }
+    throw FirebaseRewriteException(
+      'Marker "$marker" not found in android/app/src/main/AndroidManifest.xml.',
+    );
+  }
+
+  var rewritten = content;
+  const toolsNamespace = 'xmlns:tools="http://schemas.android.com/tools"';
+  if (!rewritten.contains(toolsNamespace)) {
+    rewritten = rewritten.replaceFirst(
+      '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
+      '<manifest xmlns:android="http://schemas.android.com/apk/res/android"\n'
+          '    $toolsNamespace>',
+    );
+  }
+
+  rewritten = rewritten.replaceFirst(
+    marker,
+    '<provider\n'
+    '            android:name="com.google.firebase.provider.FirebaseInitProvider"\n'
+    '            tools:node="remove" />\n'
+    '        <provider\n'
+    '            android:name="io.flutter.plugins.firebase.messaging.FlutterFirebaseMessagingInitProvider"\n'
+    '            tools:node="remove" />',
+  );
+  return rewritten.replaceFirst(
+    'android:name="firebase_messaging_auto_init_enabled"\n'
+        '            android:value="true"',
+    'android:name="firebase_messaging_auto_init_enabled"\n'
+        '            android:value="false"',
+  );
 }
 
 /// Removes every `fst:firebase:start` … `fst:firebase:end` block (inclusive).
@@ -144,8 +184,8 @@ String removeIosFirebaseResource(String pbxproj) => pbxproj
     .join('\n');
 
 /// Disables Firebase in a freshly scaffolded [projectDir]: flips
-/// `kFirebaseEnabled`, swaps the analytics/crash bindings to their no-ops,
-/// removes the Firebase Android Gradle plugins, and deletes the native
+/// `kFirebaseEnabled`, swaps the analytics/crash/performance bindings to their
+/// no-ops, removes the Firebase Android Gradle plugins, and deletes the native
 /// credential files so the project builds and runs without a Firebase project.
 Future<void> disableFirebase(String projectDir) async {
   // 1. Flip the platform flag so main.dart skips Firebase init.
@@ -156,8 +196,14 @@ Future<void> disableFirebase(String projectDir) async {
 
   // 2. Swap the tracking bindings to their no-ops.
   _rewriteFile(
-    p.join(projectDir, 'packages', 'analytics', 'lib', 'src',
-        'analytics_module.dart'),
+    p.join(
+      projectDir,
+      'packages',
+      'analytics',
+      'lib',
+      'src',
+      'analytics_module.dart',
+    ),
     (content) => removeImportLine(
       replaceMarkedExpression(
         content,
@@ -171,13 +217,57 @@ Future<void> disableFirebase(String projectDir) async {
       'package:firebase_analytics/firebase_analytics.dart',
     ),
   );
+  // The Android firebase_analytics plugin calls FirebaseAnalytics.getInstance
+  // as soon as Flutter registers it, even when the Dart binding above is a
+  // no-op. Remove the dependency and adapter so a Firebase-free app never
+  // attaches that native plugin.
   _rewriteFile(
-    p.join(projectDir, 'packages', 'app_platform', 'lib', 'src', 'crash',
-        'crash_module.dart'),
+    p.join(projectDir, 'packages', 'analytics', 'pubspec.yaml'),
+    removeFirebaseRegions,
+  );
+  _rewriteFile(
+    p.join(
+      projectDir,
+      'packages',
+      'analytics',
+      'lib',
+      'src',
+      'analytics_service.dart',
+    ),
+    removeFirebaseRegions,
+  );
+  _rewriteFile(
+    p.join(
+      projectDir,
+      'packages',
+      'app_platform',
+      'lib',
+      'src',
+      'crash',
+      'crash_module.dart',
+    ),
     (content) => replaceMarkedExpression(
       content,
       marker: 'fst:crash-impl',
       replacement: 'const NoOpCrashReporter();',
+    ),
+  );
+  _rewriteFile(
+    p.join(
+      projectDir,
+      'packages',
+      'network',
+      'lib',
+      'src',
+      'performance_module.dart',
+    ),
+    (content) => removeImportLine(
+      replaceMarkedExpression(
+        content,
+        marker: 'fst:performance-impl',
+        replacement: 'const NoOpPerformanceTracker();',
+      ),
+      'package:firebase_performance/firebase_performance.dart',
     ),
   );
 
@@ -186,6 +276,10 @@ Future<void> disableFirebase(String projectDir) async {
   _rewriteFile(
     p.join(projectDir, 'android', 'app', 'build.gradle.kts'),
     removeFirebaseGradlePlugins,
+  );
+  _rewriteFile(
+    p.join(projectDir, 'android', 'app', 'src', 'main', 'AndroidManifest.xml'),
+    disableAndroidFirebaseAutoInit,
   );
 
   // 4. Drop the Xcode project's reference to the plist deleted in step 5.
@@ -199,9 +293,7 @@ Future<void> disableFirebase(String projectDir) async {
   // 5. Drop the CI steps that fabricate placeholder credentials. They exist
   //    only because the native projects reference files this function has now
   //    stopped referencing.
-  final ci = File(
-    p.join(projectDir, '.github', 'workflows', 'ci.yml'),
-  );
+  final ci = File(p.join(projectDir, '.github', 'workflows', 'ci.yml'));
   if (ci.existsSync()) {
     ci.writeAsStringSync(
       '${removeFirebaseRegions(ci.readAsStringSync()).trimRight()}\n',
@@ -231,6 +323,32 @@ void _rewriteFile(String path, String Function(String) transform) {
 /// Keeps Firebase, and clears the `fst:firebase` markers that only exist so
 /// [disableFirebase] can find its regions.
 Future<void> keepFirebase(String projectDir) async {
+  for (final relative in const [
+    'packages/analytics/pubspec.yaml',
+    'packages/analytics/lib/src/analytics_service.dart',
+  ]) {
+    final file = File(p.join(projectDir, p.joinAll(relative.split('/'))));
+    if (file.existsSync()) {
+      file.writeAsStringSync(expandFirebaseRegions(file.readAsStringSync()));
+    }
+  }
+
+  final manifest = File(
+    p.join(projectDir, 'android', 'app', 'src', 'main', 'AndroidManifest.xml'),
+  );
+  if (manifest.existsSync()) {
+    manifest.writeAsStringSync(
+      manifest
+          .readAsStringSync()
+          .replaceAll(
+            RegExp(r'^\s*<!-- fst:firebase-provider-removal -->\s*$',
+                multiLine: true),
+            '',
+          )
+          .replaceFirst(RegExp(r'\n{3,}'), '\n\n'),
+    );
+  }
+
   final ci = File(p.join(projectDir, '.github', 'workflows', 'ci.yml'));
   if (!ci.existsSync()) return;
   ci.writeAsStringSync(

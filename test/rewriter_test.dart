@@ -5,6 +5,55 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  group('sortDartImports', () {
+    test('sorts renamed package imports and preserves marker blocks', () {
+      const source = "import 'package:feature_auth/feature_auth.dart';\n"
+          '// fst:auth:start\n'
+          "import 'package:flutter/material.dart';\n"
+          '// fst:auth:end\n'
+          "import 'package:phase02_app/app/app.dart';\n"
+          "import 'package:flutter_test/flutter_test.dart';\n";
+
+      expect(
+        sortDartImports(source),
+        equals("import 'package:feature_auth/feature_auth.dart';\n"
+            '// fst:auth:start\n'
+            "import 'package:flutter/material.dart';\n"
+            '// fst:auth:end\n'
+            "import 'package:flutter_test/flutter_test.dart';\n"
+            "import 'package:phase02_app/app/app.dart';\n"),
+      );
+    });
+
+    test('keeps dart, package, and relative imports in separate groups', () {
+      const source = "import 'package:z/z.dart';\n"
+          "import '../helper.dart';\n"
+          "import 'dart:io';\n"
+          "import 'package:a/a.dart';\n";
+
+      expect(
+        sortDartImports(source),
+        equals("import 'dart:io';\n\n"
+            "import 'package:a/a.dart';\n"
+            "import 'package:z/z.dart';\n\n"
+            "import '../helper.dart';\n"),
+      );
+    });
+
+    test('preserves multiline import statements while sorting', () {
+      const source = "import 'package:z/z.dart';\n"
+          "import 'package:a/a.dart'\n"
+          "    show SomeClass, OtherClass;\n";
+
+      expect(
+        sortDartImports(source),
+        equals("import 'package:a/a.dart'\n"
+            "    show SomeClass, OtherClass;\n"
+            "import 'package:z/z.dart';\n"),
+      );
+    });
+  });
+
   group('rewriteProject', () {
     late Directory tempDir;
 
@@ -77,10 +126,7 @@ void main() {
 
       await rewriteProject(tempDir.path, config);
 
-      expect(
-        await gradle.readAsString(),
-        contains('"Acme App"'),
-      );
+      expect(await gradle.readAsString(), contains('"Acme App"'));
     });
 
     test('does not rewrite files under .git/', () async {

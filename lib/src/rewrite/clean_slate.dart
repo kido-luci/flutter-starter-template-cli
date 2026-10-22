@@ -40,10 +40,12 @@ Future<void> prepareCleanSlate(String projectDir) async {
   _removeNestedGitLinks(Directory(projectDir));
 
   final initResult = await Process.run(
-    'git',
-    ['init', '-q'],
-    workingDirectory: projectDir,
-  );
+      'git',
+      [
+        'init',
+        '-q',
+      ],
+      workingDirectory: projectDir);
   if (initResult.exitCode != 0) {
     throw ProcessException(
       'git',

@@ -63,9 +63,11 @@ void main() {
     test('replaces the scheme name', () {
       expect(
         setThemeScheme(themeState, 'deepPurple'),
-        equals('class ThemeState {\n'
-            '  static const FlexScheme defaultScheme = FlexScheme.deepPurple;\n'
-            '}\n'),
+        equals(
+          'class ThemeState {\n'
+          '  static const FlexScheme defaultScheme = FlexScheme.deepPurple;\n'
+          '}\n',
+        ),
       );
     });
 
@@ -94,12 +96,15 @@ void main() {
     test('replaces all three occurrences', () {
       final result = setBrandColor(pubspec, '#FF5722');
       expect(
-          result,
-          equals('flutter_launcher_icons:\n'
-              '  adaptive_icon_background: "#FF5722"\n'
-              '  web:\n'
-              '    background_color: "#FF5722"\n'
-              '    theme_color: "#FF5722"\n'));
+        result,
+        equals(
+          'flutter_launcher_icons:\n'
+          '  adaptive_icon_background: "#FF5722"\n'
+          '  web:\n'
+          '    background_color: "#FF5722"\n'
+          '    theme_color: "#FF5722"\n',
+        ),
+      );
       expect('#095D9E'.allMatches(result).length, equals(0));
       expect('#FF5722'.allMatches(result).length, equals(3));
     });
@@ -135,7 +140,9 @@ void main() {
       final result = setAppFont(appTheme, 'roboto');
       expect(result, contains('GoogleFonts.robotoTextTheme()'));
       expect(
-          'GoogleFonts.robotoTextTheme()'.allMatches(result).length, equals(2));
+        'GoogleFonts.robotoTextTheme()'.allMatches(result).length,
+        equals(2),
+      );
       expect(result, isNot(contains('GoogleFonts.interTextTheme()')));
     });
 
@@ -163,9 +170,9 @@ void main() {
         ..writeAsStringSync(content);
     }
 
-    String read(String relative) =>
-        File(p.join(dir.path, p.joinAll(relative.split('/'))))
-            .readAsStringSync();
+    String read(String relative) => File(
+          p.join(dir.path, p.joinAll(relative.split('/'))),
+        ).readAsStringSync();
 
     setUp(
       () => dir = Directory.systemTemp.createTempSync('fst_branding_test_'),
@@ -212,9 +219,7 @@ void main() {
       );
       expect(
         'GoogleFonts.robotoTextTheme()'
-            .allMatches(
-              read('packages/app_ui/lib/src/theme/app_theme.dart'),
-            )
+            .allMatches(read('packages/app_ui/lib/src/theme/app_theme.dart'))
             .length,
         equals(2),
       );

@@ -119,6 +119,16 @@ Future<void> _activateObjectBox(String projectDir) async {
   // Phase 3: delete the drift package directory.
   final driftDir = Directory(p.join(projectDir, 'packages', 'database_drift'));
   if (driftDir.existsSync()) driftDir.deleteSync(recursive: true);
+
+  // A local template checkout may contain outputs from an earlier Drift
+  // scaffold verification. ObjectBox is authoritative for this branch.
+  for (final relative in const [
+    'lib/core/data/database/drift_module.dart',
+    'lib/core/data/sync/drift_sync_cursor_store.dart',
+  ]) {
+    final file = File(p.join(projectDir, p.joinAll(relative.split('/'))));
+    if (file.existsSync()) file.deleteSync();
+  }
 }
 
 Future<void> _activateDrift(
@@ -159,9 +169,10 @@ Future<void> _activateDrift(
   final driftPubspec = File(p.join(newDbDir, 'pubspec.yaml'));
   if (driftPubspec.existsSync()) {
     driftPubspec.writeAsStringSync(
-      driftPubspec
-          .readAsStringSync()
-          .replaceFirst('name: database_drift', 'name: database'),
+      driftPubspec.readAsStringSync().replaceFirst(
+            'name: database_drift',
+            'name: database',
+          ),
     );
   }
 
@@ -170,8 +181,10 @@ Future<void> _activateDrift(
   for (final entity in Directory(newDbDir).listSync(recursive: true)) {
     if (entity is! File || !entity.path.endsWith('.dart')) continue;
     final original = entity.readAsStringSync();
-    final rewritten =
-        original.replaceAll('package:database_drift/', 'package:database/');
+    final rewritten = original.replaceAll(
+      'package:database_drift/',
+      'package:database/',
+    );
     if (rewritten != original) entity.writeAsStringSync(rewritten);
   }
 
@@ -192,6 +205,22 @@ Future<void> _activateDrift(
   _writeBookmarksDataSource(projectDir);
   _writeCollectionsDataSource(projectDir);
   _writeNotificationsDataSource(projectDir);
+
+  // Phase 7: invalidate generated code whose dependency graph was built from
+  // the ObjectBox sources. These files are outputs, not rewrite inputs. Keeping
+  // them makes --no-setup appear complete while registering Store/ObjectBox
+  // against the Drift package; tool/codegen.sh deterministically recreates each
+  // surviving output from the rewritten sources.
+  for (final relative in const [
+    'lib/app/di/injection.config.dart',
+    'packages/database/lib/src/app_database.g.dart',
+    'packages/features/bookmarks/lib/src/di.module.dart',
+    'packages/features/collections/lib/src/di.module.dart',
+    'packages/features/notifications/lib/src/di.module.dart',
+  ]) {
+    final file = File(p.join(projectDir, p.joinAll(relative.split('/'))));
+    if (file.existsSync()) file.deleteSync();
+  }
 }
 
 void _writeDriftSyncCursorStore(String projectDir) {
@@ -235,10 +264,10 @@ class DriftSyncCursorStore implements SyncCursorStore {
 }
 
 void _writeDriftModule(String projectDir, {required bool useBackend}) {
-  final syncImports = useBackend
-      ? "import 'package:rev_sync/rev_sync.dart';\n"
-          "import '../sync/drift_sync_cursor_store.dart';\n"
-      : '';
+  final syncPackageImport =
+      useBackend ? "import 'package:rev_sync/rev_sync.dart';\n" : '';
+  final syncRelativeImport =
+      useBackend ? "\nimport '../sync/drift_sync_cursor_store.dart';\n" : '';
 
   final syncProvider = useBackend
       ? '''
@@ -249,40 +278,13 @@ void _writeDriftModule(String projectDir, {required bool useBackend}) {
       : '';
 
   File(
-    p.join(
-      projectDir,
-      'lib',
-      'core',
-      'data',
-      'database',
-      'drift_module.dart',
-    ),
+    p.join(projectDir, 'lib', 'core', 'data', 'database', 'drift_module.dart'),
   ).writeAsStringSync('''
 import 'package:database/database.dart';
 import 'package:injectable/injectable.dart';
-$syncImports// fst:feature:bookmarks:start
-// The app shell binds each feature's concrete local data source, and that
-// lives under the package's lib/src by design: a barrel exports the feature's
-// public surface, not its persistence internals.
-// ignore: implementation_imports
-import 'package:feature_bookmarks/src/data/local/bookmarks_local_data_source.dart';
-// fst:feature:bookmarks:end
-// fst:feature:collections:start
-// The app shell binds each feature's concrete local data source, and that
-// lives under the package's lib/src by design: a barrel exports the feature's
-// public surface, not its persistence internals.
-// ignore: implementation_imports
-import 'package:feature_collections/src/data/local/collections_local_data_source.dart';
-// fst:feature:collections:end
-// fst:feature:notifications:start
-// The app shell binds each feature's concrete local data source, and that
-// lives under the package's lib/src by design: a barrel exports the feature's
-// public surface, not its persistence internals.
-// ignore: implementation_imports
-import 'package:feature_notifications/src/data/local/notifications_local_data_source.dart';
-// fst:feature:notifications:end
+$syncPackageImport$syncRelativeImport
 
-/// Drift DI module: provides [AppDatabase] and the feature data sources backed
+/// Drift DI module: provides [AppDatabase] and core database primitives backed
 /// by Drift. Auto-discovered by injectable_generator via the `@module`
 /// annotation — no explicit entry in `externalPackageModulesBefore` needed.
 @module
@@ -290,30 +292,11 @@ abstract class DriftModule {
   @lazySingleton
   AppDatabase provideDatabase() => AppDatabase.open();
 
-$syncProvider  // fst:feature:bookmarks:start
   @lazySingleton
-  BookmarksLocalDataSource provideBookmarksLocalDataSource(
-    AppDatabase db,
-  ) =>
-      DriftBookmarksDataSource(db);
-  // fst:feature:bookmarks:end
+  AtomicWriteCoordinator provideAtomicWriteCoordinator(AppDatabase db) =>
+      DriftAtomicWriteCoordinator(db);
 
-  // fst:feature:collections:start
-  @lazySingleton
-  CollectionsLocalDataSource provideCollectionsLocalDataSource(
-    AppDatabase db,
-  ) =>
-      DriftCollectionsDataSource(db);
-  // fst:feature:collections:end
-
-  // fst:feature:notifications:start
-  @lazySingleton
-  NotificationsLocalDataSource provideNotificationsLocalDataSource(
-    AppDatabase db,
-  ) =>
-      DriftNotificationsDataSource(db);
-  // fst:feature:notifications:end
-}
+$syncProvider}
 ''');
 }
 
@@ -331,7 +314,10 @@ void _writeBookmarksDataSource(String projectDir) {
       'bookmarks_local_data_source.dart',
     ),
   ).writeAsStringSync('''
+import 'package:architecture/architecture.dart';
 import 'package:database/database.dart';
+import 'package:feature_collections/feature_collections.dart';
+import 'package:injectable/injectable.dart' hide Order;
 import 'package:rev_sync/rev_sync.dart';
 
 /// Drift-backed CRUD + sync helpers. All operations are async using Drift's
@@ -352,10 +338,16 @@ abstract interface class BookmarksLocalDataSource
   Future<BookmarkEntity> putNew(BookmarkEntity entity);
 }
 
+@LazySingleton(as: BookmarksLocalDataSource)
 class DriftBookmarksDataSource implements BookmarksLocalDataSource {
-  DriftBookmarksDataSource(AppDatabase db) : _db = db;
+  DriftBookmarksDataSource(this._db, this._atomic, this._collections);
 
   final AppDatabase _db;
+  final AtomicWriteCoordinator _atomic;
+  final CollectionsMembershipService _collections;
+  final Map<String, BookmarkEntity> _stagedPuts = {};
+  final Set<String> _stagedDeletes = {};
+  bool _cleanupRegistered = false;
 
   @override
   Future<List<BookmarkEntity>> listVisible() async {
@@ -365,7 +357,7 @@ class DriftBookmarksDataSource implements BookmarksLocalDataSource {
           )
           ..orderBy([(b) => OrderingTerm.desc(b.createdAtUs)]))
         .get();
-    return rows.map(_rowToEntity).toList();
+    return _mergeStaged(rows.map(_rowToEntity).toList(), visibleOnly: true);
   }
 
   @override
@@ -373,11 +365,16 @@ class DriftBookmarksDataSource implements BookmarksLocalDataSource {
     final rows = await (_db.select(_db.bookmarks)
           ..orderBy([(b) => OrderingTerm.desc(b.createdAtUs)]))
         .get();
-    return rows.map(_rowToEntity).toList();
+    return _mergeStaged(rows.map(_rowToEntity).toList(), visibleOnly: false);
   }
 
   @override
   Future<BookmarkEntity?> getByUuid(String uuid) async {
+    if (_atomic.isActive) {
+      if (_stagedDeletes.contains(uuid)) return null;
+      final staged = _stagedPuts[uuid];
+      if (staged != null) return staged;
+    }
     final row = await (_db.select(_db.bookmarks)
           ..where((b) => b.uuid.equals(uuid)))
         .getSingleOrNull();
@@ -400,22 +397,90 @@ class DriftBookmarksDataSource implements BookmarksLocalDataSource {
 
   @override
   Future<BookmarkEntity> putNew(BookmarkEntity entity) async {
-    entity.id = await _db.into(_db.bookmarks).insert(_toCompanion(entity));
+    if (!_atomic.isActive) {
+      return _atomic.run(() => putNew(entity));
+    }
+    _stagePut(entity, insert: true);
     return entity;
   }
 
   @override
   Future<void> put(BookmarkEntity entity) async {
-    await _db
-        .into(_db.bookmarks)
-        .insertOnConflictUpdate(_toCompanion(entity));
+    if (!_atomic.isActive) {
+      await _atomic.run(() => put(entity));
+      return;
+    }
+    _stagePut(entity, insert: false);
   }
 
   @override
   Future<void> hardDelete(BookmarkEntity entity) async {
-    await (_db.delete(_db.bookmarks)
-          ..where((b) => b.id.equals(entity.id)))
-        .go();
+    await _atomic.run(() async {
+      final cleanup = await _collections.removeBookmarkEverywhere(entity.uuid);
+      if (cleanup case Err(:final failure)) {
+        throw StateError(
+          'Could not remove bookmark collection references: \${failure.message}',
+        );
+      }
+      _prepareStaging();
+      _stagedPuts.remove(entity.uuid);
+      _stagedDeletes.add(entity.uuid);
+      _atomic.stage(
+        sync: () => throw UnsupportedError('Drift uses async transactions.'),
+        async: () async {
+          await (_db.delete(_db.bookmarks)
+                ..where((b) => b.id.equals(entity.id)))
+              .go();
+        },
+      );
+    });
+  }
+
+  void _stagePut(BookmarkEntity entity, {required bool insert}) {
+    _prepareStaging();
+    _stagedDeletes.remove(entity.uuid);
+    _stagedPuts[entity.uuid] = entity;
+    _atomic.stage(
+      sync: () => throw UnsupportedError('Drift uses async transactions.'),
+      async: () async {
+        if (insert && entity.id == 0) {
+          entity.id = await _db.into(_db.bookmarks).insert(_toCompanion(entity));
+        } else {
+          await _db
+              .into(_db.bookmarks)
+              .insertOnConflictUpdate(_toCompanion(entity));
+        }
+      },
+    );
+  }
+
+  void _prepareStaging() {
+    if (_cleanupRegistered) return;
+    _cleanupRegistered = true;
+    _atomic.afterCompletion(() {
+      _stagedPuts.clear();
+      _stagedDeletes.clear();
+      _cleanupRegistered = false;
+    });
+  }
+
+  List<BookmarkEntity> _mergeStaged(
+    List<BookmarkEntity> persisted, {
+    required bool visibleOnly,
+  }) {
+    if (!_atomic.isActive) return persisted;
+    final byUuid = <String, BookmarkEntity>{
+      for (final entity in persisted) entity.uuid: entity,
+      ..._stagedPuts,
+    }..removeWhere((uuid, _) => _stagedDeletes.contains(uuid));
+    final result = byUuid.values
+        .where(
+          (entity) =>
+              !visibleOnly || entity.syncState != SyncState.pendingDelete,
+        )
+        .toList();
+    result.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return result;
   }
 
   BookmarkEntity _rowToEntity(BookmarkRow row) => BookmarkEntity(
@@ -480,6 +545,7 @@ void _writeCollectionsDataSource(String projectDir) {
     ),
   ).writeAsStringSync('''
 import 'package:database/database.dart';
+import 'package:injectable/injectable.dart';
 import 'package:rev_sync/rev_sync.dart';
 
 /// Drift-backed CRUD + sync helpers. All operations are async using Drift's
@@ -500,10 +566,15 @@ abstract interface class CollectionsLocalDataSource
   Future<CollectionEntity> putNew(CollectionEntity entity);
 }
 
+@LazySingleton(as: CollectionsLocalDataSource)
 class DriftCollectionsDataSource implements CollectionsLocalDataSource {
-  DriftCollectionsDataSource(AppDatabase db) : _db = db;
+  DriftCollectionsDataSource(this._db, this._atomic);
 
   final AppDatabase _db;
+  final AtomicWriteCoordinator _atomic;
+  final Map<String, CollectionEntity> _stagedPuts = {};
+  final Set<String> _stagedDeletes = {};
+  bool _cleanupRegistered = false;
 
   @override
   Future<List<CollectionEntity>> listVisible() async {
@@ -513,7 +584,7 @@ class DriftCollectionsDataSource implements CollectionsLocalDataSource {
           )
           ..orderBy([(c) => OrderingTerm.desc(c.createdAtUs)]))
         .get();
-    return rows.map(_rowToEntity).toList();
+    return _mergeStaged(rows.map(_rowToEntity).toList(), visibleOnly: true);
   }
 
   @override
@@ -521,11 +592,16 @@ class DriftCollectionsDataSource implements CollectionsLocalDataSource {
     final rows = await (_db.select(_db.collections)
           ..orderBy([(c) => OrderingTerm.desc(c.createdAtUs)]))
         .get();
-    return rows.map(_rowToEntity).toList();
+    return _mergeStaged(rows.map(_rowToEntity).toList(), visibleOnly: false);
   }
 
   @override
   Future<CollectionEntity?> getByUuid(String uuid) async {
+    if (_atomic.isActive) {
+      if (_stagedDeletes.contains(uuid)) return null;
+      final staged = _stagedPuts[uuid];
+      if (staged != null) return staged;
+    }
     final row = await (_db.select(_db.collections)
           ..where((c) => c.uuid.equals(uuid)))
         .getSingleOrNull();
@@ -548,23 +624,87 @@ class DriftCollectionsDataSource implements CollectionsLocalDataSource {
 
   @override
   Future<CollectionEntity> putNew(CollectionEntity entity) async {
-    entity.id =
-        await _db.into(_db.collections).insert(_toCompanion(entity));
+    if (!_atomic.isActive) {
+      return _atomic.run(() => putNew(entity));
+    }
+    _stagePut(entity, insert: true);
     return entity;
   }
 
   @override
   Future<void> put(CollectionEntity entity) async {
-    await _db
-        .into(_db.collections)
-        .insertOnConflictUpdate(_toCompanion(entity));
+    if (!_atomic.isActive) {
+      await _atomic.run(() => put(entity));
+      return;
+    }
+    _stagePut(entity, insert: false);
   }
 
   @override
   Future<void> hardDelete(CollectionEntity entity) async {
-    await (_db.delete(_db.collections)
-          ..where((c) => c.id.equals(entity.id)))
-        .go();
+    if (!_atomic.isActive) {
+      await _atomic.run(() => hardDelete(entity));
+      return;
+    }
+    _prepareStaging();
+    _stagedPuts.remove(entity.uuid);
+    _stagedDeletes.add(entity.uuid);
+    _atomic.stage(
+      sync: () => throw UnsupportedError('Drift uses async transactions.'),
+      async: () async {
+        await (_db.delete(_db.collections)
+              ..where((c) => c.id.equals(entity.id)))
+            .go();
+      },
+    );
+  }
+
+  void _stagePut(CollectionEntity entity, {required bool insert}) {
+    _prepareStaging();
+    _stagedDeletes.remove(entity.uuid);
+    _stagedPuts[entity.uuid] = entity;
+    _atomic.stage(
+      sync: () => throw UnsupportedError('Drift uses async transactions.'),
+      async: () async {
+        if (insert && entity.id == 0) {
+          entity.id =
+              await _db.into(_db.collections).insert(_toCompanion(entity));
+        } else {
+          await _db
+              .into(_db.collections)
+              .insertOnConflictUpdate(_toCompanion(entity));
+        }
+      },
+    );
+  }
+
+  void _prepareStaging() {
+    if (_cleanupRegistered) return;
+    _cleanupRegistered = true;
+    _atomic.afterCompletion(() {
+      _stagedPuts.clear();
+      _stagedDeletes.clear();
+      _cleanupRegistered = false;
+    });
+  }
+
+  List<CollectionEntity> _mergeStaged(
+    List<CollectionEntity> persisted, {
+    required bool visibleOnly,
+  }) {
+    if (!_atomic.isActive) return persisted;
+    final byUuid = <String, CollectionEntity>{
+      for (final entity in persisted) entity.uuid: entity,
+      ..._stagedPuts,
+    }..removeWhere((uuid, _) => _stagedDeletes.contains(uuid));
+    final result = byUuid.values
+        .where(
+          (entity) =>
+              !visibleOnly || entity.syncState != SyncState.pendingDelete,
+        )
+        .toList();
+    result.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return result;
   }
 
   CollectionEntity _rowToEntity(CollectionRow row) => CollectionEntity(
@@ -626,6 +766,7 @@ void _writeNotificationsDataSource(String projectDir) {
     ),
   ).writeAsStringSync('''
 import 'package:database/database.dart';
+import 'package:injectable/injectable.dart';
 
 /// Drift-backed cache for the notifications feed. All operations are async
 /// using Drift's select/into API.
@@ -661,6 +802,7 @@ abstract interface class NotificationsLocalDataSource {
   Future<void> removeActivity(int pk);
 }
 
+@LazySingleton(as: NotificationsLocalDataSource)
 class DriftNotificationsDataSource implements NotificationsLocalDataSource {
   DriftNotificationsDataSource(AppDatabase db) : _db = db;
 
